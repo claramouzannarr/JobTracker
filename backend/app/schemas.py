@@ -1,0 +1,134 @@
+from pydantic import BaseModel, EmailStr
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+
+
+# User schemas
+class UserBase(BaseModel):
+    email: EmailStr
+    name: Optional[str] = None
+    age: Optional[int] = None
+    country: Optional[str] = None
+    graduation_year: Optional[int] = None
+    highest_degree: Optional[str] = None
+    major: Optional[str] = None
+    years_experience: Optional[int] = None
+    primary_industry_preference: Optional[str] = None
+    primary_role_preference: Optional[str] = None
+    desired_countries: Optional[List[str]] = None
+    languages_spoken: Optional[List[str]] = None
+    work_authorization: Optional[str] = None
+    gpa: Optional[float] = None
+    remote_preference: Optional[str] = None
+    job_type_preference: Optional[str] = None
+
+
+class UserCreate(UserBase):
+    password: str
+
+
+class UserResponse(UserBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Auth schemas
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+# Application schemas
+class ApplicationBase(BaseModel):
+    company_name: str
+    job_title: str
+    job_url: Optional[str] = None
+    job_description_text: Optional[str] = None
+    industry: Optional[str] = None
+    country: Optional[str] = None
+    status: str = "Applied"
+    notes: Optional[str] = None
+
+
+class ApplicationCreate(ApplicationBase):
+    pass
+
+
+class ApplicationResponse(ApplicationBase):
+    id: int
+    user_id: int
+    stage_updated_at: datetime
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Resume schemas
+class ResumeVersionResponse(BaseModel):
+    id: int
+    application_id: int
+    file_path: str
+    extracted_text: Optional[str] = None
+    evaluation_scores: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ResumeUploadResponse(BaseModel):
+    resume_version: ResumeVersionResponse
+    evaluation_scores: Dict[str, Any]
+
+
+# Evaluation scores schema
+class EvaluationScores(BaseModel):
+    job_compatibility: float
+    skills_coverage: float
+    grammar_score: float
+    template_quality: float
+    bullet_quality: float
+    cliche_penalty: float
+    overall_score: float
+    skill_gaps: List[str]
+    grammar_errors: List[Dict[str, Any]]
+    cliche_phrases: List[str]
+
+
+# Job recommendation schemas
+class JobRecommendation(BaseModel):
+    id: int
+    title: str
+    company: str
+    description_text: Optional[str] = None
+    country: Optional[str] = None
+    remote_flag: bool
+    job_url: Optional[str] = None
+    similarity_score: float
+
+    class Config:
+        from_attributes = True
+
+
+# Interview prep schemas
+class InterviewPrepResponse(BaseModel):
+    id: int
+    application_id: int
+    questions: List[str]
+    resources_links: List[str]
+    topics_to_review: List[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
