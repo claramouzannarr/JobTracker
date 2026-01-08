@@ -11,14 +11,13 @@ class UserBase(BaseModel):
     country: Optional[str] = None
     graduation_year: Optional[int] = None
     highest_degree: Optional[str] = None
-    major: Optional[str] = None
+    major: Optional[List[str]] = None  # List of majors/fields of study
     years_experience: Optional[int] = None
     primary_industry_preference: Optional[str] = None
     primary_role_preference: Optional[str] = None
     desired_countries: Optional[List[str]] = None
     languages_spoken: Optional[List[str]] = None
     work_authorization: Optional[str] = None
-    gpa: Optional[float] = None
     remote_preference: Optional[str] = None
     job_type_preference: Optional[str] = None
 
@@ -54,7 +53,7 @@ class ApplicationBase(BaseModel):
     job_description_text: Optional[str] = None
     industry: Optional[str] = None
     country: Optional[str] = None
-    status: str = "Applied"
+    status: str = "Preparing"  # Preparing, Applied, Interview Prep, Rejected
     notes: Optional[str] = None
 
 
@@ -68,6 +67,7 @@ class ApplicationResponse(ApplicationBase):
     stage_updated_at: datetime
     created_at: datetime
     updated_at: Optional[datetime] = None
+    resume_score: Optional[float] = None  # Overall score from latest resume
 
     class Config:
         from_attributes = True

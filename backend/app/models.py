@@ -15,7 +15,7 @@ class User(Base):
     country = Column(String)
     graduation_year = Column(Integer)
     highest_degree = Column(String)
-    major = Column(String)
+    major = Column(JSON)  # List of majors/fields of study
     years_experience = Column(Integer)
     primary_industry_preference = Column(String)
     primary_role_preference = Column(String)
@@ -42,7 +42,7 @@ class Application(Base):
     job_description_text = Column(Text)
     industry = Column(String)
     country = Column(String)
-    status = Column(String, default="Applied")  # Applied, Screening, Interview, Offer, Rejected
+    status = Column(String, default="Preparing")  # Preparing, Applied, Interview Prep, Rejected
     stage_updated_at = Column(DateTime(timezone=True), server_default=func.now())
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

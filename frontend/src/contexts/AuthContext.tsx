@@ -14,7 +14,7 @@ interface AuthContextType {
   user: User | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string, name?: string) => Promise<void>
+  register: (email: string, password: string, name?: string, profileData?: any) => Promise<void>
   logout: () => void
   token: string | null
 }
@@ -69,17 +69,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const register = async (email: string, password: string, name?: string) => {
+  const register = async (email: string, password: string, name?: string, profileData?: any) => {
     try {
-      const response = await axios.post('/auth/register', {
+      const registrationData = {
         email,
         password,
         name,
-      })
+        ...profileData,
+      }
+      console.log('Registering with data:', { ...registrationData, password: '***' })
+      const response = await axios.post('/auth/register', registrationData)
+      console.log('Registration successful:', response.data)
       // After registration, log in
       await login(email, password)
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Registration failed')
+      console.error('Registration error:', error)
+      console.error('Error response:', error.response)
+      
+      // Handle validation errors
+      if (error.response?.data?.detail) {
+        if (Array.isArray(error.response.data.detail)) {
+          // FastAPI validation errors
+          const errorMessages = error.response.data.detail.map((err: any) => {
+            const field = err.loc ? err.loc[err.loc.length - 1] : 'field'
+            return `${field}: ${err.msg}`
+          }).join(', ')
+          throw new Error(errorMessages)
+        } else if (typeof error.response.data.detail === 'string') {
+          throw new Error(error.response.data.detail)
+        }
+      }
+      
+      throw new Error(error.message || 'Registration failed. Please check your input and try again.')
     }
   }
 

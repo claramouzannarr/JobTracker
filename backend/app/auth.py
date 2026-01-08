@@ -18,6 +18,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def get_password_hash(password: str) -> str:
+    # Bcrypt has a 72-byte limit
+    # We validate password length before calling this function
     return pwd_context.hash(password)
 
 
