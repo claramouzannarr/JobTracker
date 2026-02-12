@@ -43,14 +43,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUser = async (authToken: string) => {
     try {
+      console.log('Fetching user data with token...')
       const response = await axios.get('/auth/me', {
         headers: { Authorization: `Bearer ${authToken}` },
       })
-      setUser(response.data)
-    } catch (error) {
+      console.log('User data received:', response.data)
+      const userData = response.data
+      setUser(userData)
+      console.log('User state updated successfully:', userData)
+      return userData
+    } catch (error: any) {
       console.error('Failed to fetch user:', error)
+      console.error('Error details:', error.response?.data)
+      // Clear invalid token
       localStorage.removeItem('token')
       setToken(null)
+      setUser(null)
+      throw error
     } finally {
       setLoading(false)
     }
@@ -58,14 +67,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
+      setLoading(true)
+      console.log('Attempting login for:', email)
       const response = await axios.post('/auth/login', { email, password })
-      const { access_token } = response.data
+      console.log('Login response received:', response.data)
+      const { access_token, user: userFromResponse } = response.data
+      if (!access_token) {
+        throw new Error('No access token received from server')
+      }
+      
+      console.log('Saving token to localStorage...')
       setToken(access_token)
       localStorage.setItem('token', access_token)
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
-      await fetchUser(access_token)
+
+      // Prefer user info from login response; fall back to /auth/me if needed
+      if (userFromResponse) {
+        console.log('Setting user from login response:', userFromResponse)
+        setUser(userFromResponse)
+      } else {
+        console.log('No user in login response, fetching via /auth/me...')
+        const userData = await fetchUser(access_token)
+        if (userData) {
+          setUser(userData)
+          console.log('User state set from /auth/me:', userData)
+        } else {
+          throw new Error('Failed to fetch user data after login')
+        }
+      }
+
+      console.log('Login complete, user data loaded')
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Login failed')
+      console.error('Login error:', error)
+      console.error('Error response:', error.response)
+      setLoading(false)
+      const errorMessage = error.response?.data?.detail || error.message || 'Login failed. Please check your credentials.'
+      throw new Error(errorMessage)
     }
   }
 
@@ -80,8 +117,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('Registering with data:', { ...registrationData, password: '***' })
       const response = await axios.post('/auth/register', registrationData)
       console.log('Registration successful:', response.data)
-      // After registration, log in
-      await login(email, password)
+      // Registration only - user will log in manually after this
+      console.log('Registration complete. User should now log in manually.')
     } catch (error: any) {
       console.error('Registration error:', error)
       console.error('Error response:', error.response)

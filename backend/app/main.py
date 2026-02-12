@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from app.database import engine, Base
-from app.routers import auth, applications, resumes, jobs, interview_prep
+from app.routers import auth, applications, resumes, jobs, interview_prep, admin
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -33,6 +33,7 @@ app.include_router(applications.router, prefix="/api/applications", tags=["appli
 app.include_router(resumes.router, prefix="/api/resumes", tags=["resumes"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(interview_prep.router, prefix="/api/interview-prep", tags=["interview-prep"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/")

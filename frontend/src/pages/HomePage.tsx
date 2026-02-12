@@ -39,7 +39,6 @@ export default function HomePage() {
     notes: '',
   })
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [currentApplicationId, setCurrentApplicationId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchApplications()
@@ -64,7 +63,6 @@ export default function HomePage() {
       const response = await axios.post('/applications', newApplication)
       const createdApp = response.data
       setApplications([...applications, createdApp])
-      setCurrentApplicationId(createdApp.id)
       
       // If resume is selected, upload it
       if (selectedFile) {
@@ -88,7 +86,7 @@ export default function HomePage() {
       const formData = new FormData()
       formData.append('file', selectedFile)
       
-      const response = await axios.post(`/resumes/upload/${applicationId}`, formData, {
+      await axios.post(`/resumes/upload/${applicationId}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -103,7 +101,6 @@ export default function HomePage() {
     } finally {
       setUploadingResume(false)
       setSelectedFile(null)
-      setCurrentApplicationId(null)
     }
   }
 

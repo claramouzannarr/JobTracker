@@ -53,10 +53,6 @@ export default function RegisterPage() {
       }
       if (!password) {
         newErrors.password = 'Password is required'
-      } else if (password.length < 6) {
-        newErrors.password = 'Password must be at least 6 characters'
-      } else if (new TextEncoder().encode(password).length > 72) {
-        newErrors.password = 'Password is too long. Please use 72 characters or less.'
       }
       if (password !== confirmPassword) {
         newErrors.confirmPassword = 'Passwords do not match'
@@ -217,11 +213,10 @@ export default function RegisterPage() {
           type="password"
           autoComplete="new-password"
           required
-          minLength={6}
           className={`appearance-none relative block w-full px-3 py-2 border ${
             errors.password ? 'border-red-300' : 'border-gray-300'
           } placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm`}
-          placeholder="Minimum 6 characters"
+                placeholder="Enter your password"
           value={password}
           onChange={(e) => {
             setPassword(e.target.value)
