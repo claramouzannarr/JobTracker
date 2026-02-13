@@ -81,9 +81,12 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
             )
         
         access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+        # Ensure user.id is an integer for the JWT token
+        token_data = {"sub": str(user.id)}  # JWT standard: sub should be a string
         access_token = create_access_token(
-            data={"sub": user.id}, expires_delta=access_token_expires
+            data=token_data, expires_delta=access_token_expires
         )
+        print(f"DEBUG: Created token for user ID: {user.id}, email: {user.email}")
         # Also return basic user info so frontend doesn't need a second call
         return {
             "access_token": access_token,

@@ -38,16 +38,49 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     """
-    TEMPORARY DEV IMPLEMENTATION:
-    - Ignores the JWT token and simply returns the first user in the database.
-    - This is to unblock login / credentials issues while the hashing & token flow are being debugged.
-    - DO NOT USE THIS IN PRODUCTION.
+    Proper JWT-based current user resolver.
+    Uses the `sub` claim from the access token to look up the user by ID.
     """
-    user = db.query(User).first()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No users found in the system.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        # Decode the JWT token
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        user_id = payload.get("sub")
+        
+        if user_id is None:
+            print(f"ERROR: No 'sub' claim in token payload: {payload}")
+            raise credentials_exception
+        
+        # Convert user_id to int (JWT may encode it as string)
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError) as e:
+            print(f"ERROR: Could not convert user_id to int: {user_id}, error: {e}")
+            raise credentials_exception
+        
+        print(f"DEBUG: Looking up user with ID: {user_id}")
+        
+        # Query the user from database
+        user = db.query(User).filter(User.id == user_id).first()
+        
+        if user is None:
+            print(f"ERROR: User with ID {user_id} not found in database")
+            raise credentials_exception
+        
+        print(f"DEBUG: Found user: {user.email} (ID: {user.id})")
+        return user
+        
+    except JWTError as e:
+        print(f"ERROR: JWT decode error: {str(e)}")
+        print(f"ERROR: Token received: {token[:50]}...")
+        print(f"ERROR: Secret key length: {len(settings.secret_key)}")
+        raise credentials_exception
+    except Exception as e:
+        print(f"ERROR: Unexpected error in get_current_user: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise credentials_exception

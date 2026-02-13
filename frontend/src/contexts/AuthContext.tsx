@@ -71,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('Attempting login for:', email)
       const response = await axios.post('/auth/login', { email, password })
       console.log('Login response received:', response.data)
+      
       const { access_token, user: userFromResponse } = response.data
       if (!access_token) {
         throw new Error('No access token received from server')
@@ -81,25 +82,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('token', access_token)
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
 
-      // Prefer user info from login response; fall back to /auth/me if needed
+      // Use user info from login response (backend always returns it)
       if (userFromResponse) {
         console.log('Setting user from login response:', userFromResponse)
         setUser(userFromResponse)
+        setLoading(false)
+        console.log('Login complete, user data loaded')
       } else {
-        console.log('No user in login response, fetching via /auth/me...')
-        const userData = await fetchUser(access_token)
-        if (userData) {
-          setUser(userData)
-          console.log('User state set from /auth/me:', userData)
-        } else {
-          throw new Error('Failed to fetch user data after login')
+        // Fallback: if somehow user is missing, try /auth/me
+        console.warn('No user in login response, fetching via /auth/me...')
+        try {
+          const userData = await fetchUser(access_token)
+          if (userData) {
+            setUser(userData)
+            console.log('User state set from /auth/me:', userData)
+          } else {
+            throw new Error('Failed to fetch user data after login')
+          }
+        } catch (fetchError: any) {
+          console.error('Failed to fetch user via /auth/me:', fetchError)
+          // Don't fail login if we have a token - user can still use the app
+          // Just log the error
+          setLoading(false)
         }
       }
-
-      console.log('Login complete, user data loaded')
     } catch (error: any) {
       console.error('Login error:', error)
-      console.error('Error response:', error.response)
+      console.error('Error response:', error.response?.data)
       setLoading(false)
       const errorMessage = error.response?.data?.detail || error.message || 'Login failed. Please check your credentials.'
       throw new Error(errorMessage)
