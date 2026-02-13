@@ -2,11 +2,14 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.database import engine, Base
+from app.database import engine, Base, migrate_resume_versions_table
 from app.routers import auth, applications, resumes, jobs, interview_prep, admin
 
 # Create tables
 Base.metadata.create_all(bind=engine)
+
+# Run migration to add missing columns
+migrate_resume_versions_table()
 
 app = FastAPI(title="Job Tracker API", version="1.0.0")
 
@@ -18,6 +21,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Debug middleware to log all requests
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    # Only log API requests (not static files or health checks)
+    if "/api/" in str(request.url):
+        print(f"\n=== REQUEST DEBUG ===")
+        print(f"Method: {request.method}")
+        print(f"URL: {request.url}")
+        auth_header = request.headers.get("authorization", None)
+        if auth_header:
+            print(f"Authorization header: {auth_header[:50]}...")
+            print(f"Authorization header length: {len(auth_header)}")
+        else:
+            print("WARNING: No Authorization header found!")
+        print(f"=====================\n")
+    
+    response = await call_next(request)
+    
+    # Log response status for API requests
+    if "/api/" in str(request.url):
+        print(f"Response status: {response.status_code}")
+    
+    return response
 
 # Enhanced error handling for validation
 @app.exception_handler(RequestValidationError)
@@ -34,6 +61,10 @@ app.include_router(resumes.router, prefix="/api/resumes", tags=["resumes"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(interview_prep.router, prefix="/api/interview-prep", tags=["interview-prep"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+
+# Note: FastAPI redirects /api/applications to /api/applications/ by default
+# To prevent losing Authorization header during redirect, frontend should use trailing slashes
+# OR we can add middleware to preserve headers during redirects
 
 
 @app.get("/")

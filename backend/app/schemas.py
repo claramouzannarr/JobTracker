@@ -79,7 +79,9 @@ class ResumeVersionResponse(BaseModel):
     application_id: int
     file_path: str
     extracted_text: Optional[str] = None
+    parsed_sections: Optional[Dict[str, Any]] = None
     evaluation_scores: Optional[Dict[str, Any]] = None
+    overall_score: Optional[float] = None
     created_at: datetime
 
     class Config:
@@ -89,6 +91,8 @@ class ResumeVersionResponse(BaseModel):
 class ResumeUploadResponse(BaseModel):
     resume_version: ResumeVersionResponse
     evaluation_scores: Dict[str, Any]
+    overall_score: float
+    suggestions: List[str]
 
 
 # Evaluation scores schema

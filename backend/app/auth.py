@@ -11,7 +11,9 @@ from app.models import User
 
 # Use pbkdf2_sha256 only (no 72-byte limit issues with bcrypt)
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+# OAuth2PasswordBearer extracts token from Authorization: Bearer <token> header
+# tokenUrl is only used for the OpenAPI docs, not for actual token extraction
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -46,10 +48,22 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    print(f"=== AUTH DEBUG START ===")
+    print(f"Token received (first 50 chars): {token[:50] if token else 'None'}...")
+    print(f"Token length: {len(token) if token else 0}")
+    print(f"Secret key length: {len(settings.secret_key)}")
+    print(f"Secret key (first 30 chars): {settings.secret_key[:30]}...")
+    print(f"Algorithm: {settings.algorithm}")
+    
     try:
         # Decode the JWT token
+        print(f"Attempting to decode token...")
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        print(f"Token decoded successfully. Payload: {payload}")
+        
         user_id = payload.get("sub")
+        print(f"Extracted user_id (sub): {user_id}, type: {type(user_id)}")
         
         if user_id is None:
             print(f"ERROR: No 'sub' claim in token payload: {payload}")
@@ -58,29 +72,40 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         # Convert user_id to int (JWT may encode it as string)
         try:
             user_id = int(user_id)
+            print(f"Converted user_id to int: {user_id}")
         except (TypeError, ValueError) as e:
             print(f"ERROR: Could not convert user_id to int: {user_id}, error: {e}")
             raise credentials_exception
         
-        print(f"DEBUG: Looking up user with ID: {user_id}")
+        print(f"Looking up user with ID: {user_id}")
         
         # Query the user from database
         user = db.query(User).filter(User.id == user_id).first()
         
         if user is None:
             print(f"ERROR: User with ID {user_id} not found in database")
+            # List all users for debugging
+            all_users = db.query(User).all()
+            print(f"Available user IDs in database: {[u.id for u in all_users]}")
             raise credentials_exception
         
-        print(f"DEBUG: Found user: {user.email} (ID: {user.id})")
+        print(f"SUCCESS: Found user: {user.email} (ID: {user.id})")
+        print(f"=== AUTH DEBUG END ===")
         return user
         
     except JWTError as e:
         print(f"ERROR: JWT decode error: {str(e)}")
         print(f"ERROR: Token received: {token[:50]}...")
         print(f"ERROR: Secret key length: {len(settings.secret_key)}")
+        print(f"ERROR: Secret key (first 20 chars): {settings.secret_key[:20]}...")
+        print(f"=== AUTH DEBUG END ===")
         raise credentials_exception
+    except HTTPException:
+        print(f"=== AUTH DEBUG END ===")
+        raise
     except Exception as e:
         print(f"ERROR: Unexpected error in get_current_user: {str(e)}")
         import traceback
         traceback.print_exc()
+        print(f"=== AUTH DEBUG END ===")
         raise credentials_exception

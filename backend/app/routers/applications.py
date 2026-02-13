@@ -15,6 +15,8 @@ async def create_application(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Note: Resume upload is handled separately via /resumes/upload/{application_id}
+    # This endpoint just creates the application record
     db_application = Application(
         **application.dict(),
         user_id=current_user.id
@@ -57,8 +59,14 @@ async def get_applications(
             ResumeVersion.application_id == app.id
         ).order_by(ResumeVersion.created_at.desc()).first()
         
-        if latest_resume and latest_resume.evaluation_scores:
-            app_dict["resume_score"] = latest_resume.evaluation_scores.get("overall_score")
+        if latest_resume:
+            # Prefer overall_score field, fallback to evaluation_scores
+            app_dict["resume_score"] = latest_resume.overall_score
+            if app_dict["resume_score"] is None and latest_resume.evaluation_scores:
+                app_dict["resume_score"] = latest_resume.evaluation_scores.get("overall_score")
+            # Normalize to 0-1 scale for frontend (frontend multiplies by 100 for display)
+            if app_dict["resume_score"] is not None:
+                app_dict["resume_score"] = app_dict["resume_score"] / 100
         
         result.append(ApplicationResponse(**app_dict))
     

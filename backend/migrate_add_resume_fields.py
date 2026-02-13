@@ -1,25 +1,21 @@
+"""
+Migration script to add parsed_sections and overall_score columns to resume_versions table
+Run this with: python migrate_add_resume_fields.py
+"""
+import sys
+import os
+
+# Add the backend directory to the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from sqlalchemy import create_engine, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from app.config import settings
 
-engine = create_engine(settings.database_url)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def migrate_resume_versions_table():
-    """Add missing columns to resume_versions table if they don't exist"""
-    with engine.begin() as conn:
+def migrate():
+    engine = create_engine(settings.database_url)
+    
+    with engine.begin() as conn:  # Use begin() for auto-commit
+        # Check if columns exist, if not add them
         try:
             # Add parsed_sections column if it doesn't exist
             conn.execute(text("""
@@ -46,8 +42,11 @@ def migrate_resume_versions_table():
                     END IF;
                 END $$;
             """))
-            print("✅ Database migration: Added parsed_sections and overall_score columns")
+            
+            print("✅ Migration successful: Added parsed_sections and overall_score columns")
         except Exception as e:
-            print(f"⚠️  Migration note: {e}")
-            # Don't raise - columns might already exist
+            print(f"❌ Migration error: {e}")
+            raise
 
+if __name__ == "__main__":
+    migrate()

@@ -87,6 +87,10 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
             data=token_data, expires_delta=access_token_expires
         )
         print(f"DEBUG: Created token for user ID: {user.id}, email: {user.email}")
+        print(f"DEBUG: Token (first 50 chars): {access_token[:50]}...")
+        print(f"DEBUG: Secret key used (first 30 chars): {settings.secret_key[:30]}...")
+        print(f"DEBUG: Algorithm: {settings.algorithm}")
+        
         # Also return basic user info so frontend doesn't need a second call
         return {
             "access_token": access_token,
@@ -111,5 +115,5 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
+    print(f"DEBUG /auth/me: Returning user {current_user.email} (ID: {current_user.id})")
     return current_user
-

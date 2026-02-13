@@ -27,7 +27,10 @@ export default function HomePage() {
   const [success, setSuccess] = useState('')
   const [showAddModal, setShowAddModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
+  const [showResultsModal, setShowResultsModal] = useState(false)
   const [uploadingResume, setUploadingResume] = useState(false)
+  const [evaluationResults, setEvaluationResults] = useState<any>(null)
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
   const [newApplication, setNewApplication] = useState({
     company_name: '',
     job_title: '',
@@ -41,15 +44,58 @@ export default function HomePage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
   useEffect(() => {
-    fetchApplications()
-  }, [])
+    // Only fetch applications if user is logged in
+    if (user) {
+      fetchApplications()
+    } else {
+      // Wait a bit for user to be set after login
+      const timer = setTimeout(() => {
+        if (user) {
+          fetchApplications()
+        } else {
+          setLoading(false)
+        }
+      }, 500)
+      return () => clearTimeout(timer)
+    }
+  }, [user])
 
   const fetchApplications = async () => {
     try {
-      const response = await axios.get('/applications')
+      // Ensure token is in headers
+      const token = localStorage.getItem('token')
+      if (!token) {
+        setError('No authentication token found. Please log in.')
+        setLoading(false)
+        return
+      }
+      
+      // Ensure axios defaults are set
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      
+      const headers: any = {
+        Authorization: `Bearer ${token}`
+      }
+      
+      console.log('Fetching applications with token:', token.substring(0, 20) + '...')
+      console.log('Token full length:', token.length)
+      console.log('Axios defaults Authorization:', axios.defaults.headers.common['Authorization']?.substring(0, 50) + '...')
+      console.log('Request headers being sent:', headers)
+      
+      // Use trailing slash to match backend route exactly
+      const response = await axios.get('/applications/', { headers })
+      console.log('Applications fetched:', response.data)
       setApplications(response.data)
+      setError('') // Clear any previous errors
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to fetch applications')
+      console.error('Error fetching applications:', err)
+      console.error('Error response:', err.response)
+      console.error('Error status:', err.response?.status)
+      if (err.response?.status === 401) {
+        setError('Authentication failed. Please log out and log back in.')
+      } else {
+        setError(err.response?.data?.detail || 'Failed to fetch applications')
+      }
     } finally {
       setLoading(false)
     }
@@ -59,45 +105,103 @@ export default function HomePage() {
     e.preventDefault()
     setError('')
     setSuccess('')
+    setUploadingResume(true)
+    
+    // Resume is now mandatory
+    if (!selectedFile) {
+      setError('Resume upload is required. Please upload your resume before submitting.')
+      setUploadingResume(false)
+      return
+    }
+    
     try {
-      const response = await axios.post('/applications', newApplication)
+      // Ensure token is in headers
+      const token = localStorage.getItem('token')
+      if (!token) {
+        setError('No authentication token found. Please log in.')
+        setUploadingResume(false)
+        return
+      }
+      
+      // Ensure axios defaults are set
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      
+      const headers: any = {
+        Authorization: `Bearer ${token}`
+      }
+      
+      console.log('Creating application with token:', token.substring(0, 20) + '...')
+      console.log('Creating application...', newApplication)
+      // Use trailing slash to match backend route exactly
+      const response = await axios.post('/applications/', newApplication, { headers })
       const createdApp = response.data
+      console.log('Application created:', createdApp)
       setApplications([...applications, createdApp])
       
-      // If resume is selected, upload it
-      if (selectedFile) {
-        await handleResumeUpload(createdApp.id)
-      } else {
-        setShowAddModal(false)
-        resetForm()
-        setSuccess('Application added successfully!')
-      }
+      // Upload resume (mandatory)
+      console.log('Uploading resume for application:', createdApp.id)
+      await handleResumeUpload(createdApp.id)
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to create application')
+      console.error('Error creating application:', err)
+      console.error('Error response:', err.response)
+      setError(err.response?.data?.detail || err.message || 'Failed to create application. Please try again.')
+      setUploadingResume(false)
     }
   }
 
   const handleResumeUpload = async (applicationId: number) => {
-    if (!selectedFile) return
+    if (!selectedFile) {
+      setError('No file selected')
+      setUploadingResume(false)
+      return
+    }
     
-    setUploadingResume(true)
     setError('')
     try {
+      console.log('Uploading resume file:', selectedFile.name)
       const formData = new FormData()
       formData.append('file', selectedFile)
       
-      await axios.post(`/resumes/upload/${applicationId}`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      // Ensure token is in headers
+      const token = localStorage.getItem('token')
+      if (!token) {
+        setError('No authentication token found. Please log in.')
+        setUploadingResume(false)
+        return
+      }
+      
+      // Ensure axios defaults are set
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      
+      const headers: any = {
+        'Content-Type': 'multipart/form-data',
+        Authorization: `Bearer ${token}`
+      }
+      
+      console.log('Sending request to /resumes/upload/' + applicationId + ' with token:', token.substring(0, 20) + '...')
+      const response = await axios.post(`/resumes/upload/${applicationId}`, formData, {
+        headers,
+        timeout: 120000, // 2 minute timeout for analysis
       })
       
-      setSuccess('Application and resume uploaded successfully! Evaluation complete.')
+      console.log('Resume upload response:', response.data)
+      
+      // Store evaluation results
+      setEvaluationResults(response.data)
+      
+      // Close add modal and show results
       setShowAddModal(false)
+      setShowResultsModal(true)
       resetForm()
       await fetchApplications() // Refresh to get updated scores
+      setSuccess('Application created and resume analyzed successfully!')
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to upload resume')
+      console.error('Error uploading resume:', err)
+      console.error('Error response:', err.response)
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to upload and analyze resume. Please try again.'
+      setError(errorMsg)
+      // Don't close modal on error so user can retry
+      throw err // Re-throw so handleAddApplication knows it failed
     } finally {
       setUploadingResume(false)
       setSelectedFile(null)
@@ -161,6 +265,7 @@ export default function HomePage() {
 
   const formatScore = (score: number | null) => {
     if (score === null) return 'N/A'
+    // Score is already 0-1 scale from backend
     return `${(score * 100).toFixed(0)}%`
   }
 
@@ -370,6 +475,16 @@ export default function HomePage() {
               </button>
             </div>
             <form onSubmit={handleAddApplication} className="p-6 space-y-4">
+              {error && (
+                <div className="mb-4 rounded-md bg-red-50 border-2 border-red-300 p-4">
+                  <div className="flex items-center">
+                    <svg className="h-5 w-5 text-red-600 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                    <div className="text-sm font-medium text-red-800">{error}</div>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -466,7 +581,7 @@ export default function HomePage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Upload Resume (PDF, DOCX) - Optional
+                  Upload Resume (PDF, DOCX) <span className="text-red-500">* Required</span>
                 </label>
                 <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
                   <div className="space-y-1 text-center">
@@ -535,13 +650,397 @@ export default function HomePage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={uploadingResume}
-                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                  disabled={uploadingResume || !selectedFile}
+                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {uploadingResume ? 'Uploading...' : 'Add Application'}
+                  {uploadingResume ? 'Analyzing Resume...' : 'Create Application & Analyze Resume'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Evaluation Results Modal */}
+      {showResultsModal && evaluationResults && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+              <h3 className="text-2xl font-semibold text-gray-900">Resume Evaluation Results</h3>
+              <button
+                onClick={() => {
+                  setShowResultsModal(false)
+                  setEvaluationResults(null)
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6">
+              {/* Overall Score */}
+              <div className="mb-6 p-6 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border-2 border-indigo-200">
+                <div className="text-center">
+                  <div className="text-4xl font-bold text-indigo-600 mb-2">
+                    {evaluationResults.overall_score?.toFixed(1) || 'N/A'}
+                  </div>
+                  <div className="text-lg text-gray-700">Overall Resume Score</div>
+                  <div className="text-sm text-gray-500 mt-1">Out of 100 points</div>
+                </div>
+              </div>
+
+              {/* Detailed Scores - Expandable Sections */}
+              <div className="space-y-4">
+                {/* Format Score */}
+                <div className="border rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSections({...expandedSections, format: !expandedSections.format})}
+                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="text-2xl font-bold text-gray-700">
+                        {evaluationResults.evaluation_scores?.format?.score?.toFixed(1) || 'N/A'}
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-semibold text-gray-900">Format & Structure</h4>
+                        <p className="text-sm text-gray-500">Sections, ordering, page count, bullet consistency</p>
+                      </div>
+                    </div>
+                    <svg
+                      className={`w-5 h-5 text-gray-500 transform transition-transform ${expandedSections.format ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {expandedSections.format && (
+                    <div className="px-6 py-4 border-t bg-gray-50">
+                      {/* Strengths */}
+                      {evaluationResults.evaluation_scores?.format?.strengths?.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-sm font-semibold text-green-700 mb-2">✓ What's Working Well:</p>
+                          <ul className="list-none space-y-1">
+                            {evaluationResults.evaluation_scores.format.strengths.map((strength: string, idx: number) => (
+                              <li key={idx} className="text-sm text-green-600">{strength}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {/* Issues */}
+                      {evaluationResults.evaluation_scores?.format?.issues?.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-sm font-semibold text-red-700 mb-2">⚠ Areas to Improve:</p>
+                          <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+                            {evaluationResults.evaluation_scores.format.issues.map((issue: string, idx: number) => (
+                              <li key={idx}>{issue}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {/* Detailed Breakdown */}
+                      {evaluationResults.evaluation_scores?.format?.details && (
+                        <div className="mt-4 space-y-3 text-sm">
+                          {evaluationResults.evaluation_scores.format.details.sections && (
+                            <div className="bg-white p-3 rounded border">
+                              <p className="font-medium text-gray-700 mb-1">Sections Found:</p>
+                              <p className="text-gray-600">{evaluationResults.evaluation_scores.format.details.sections.score_breakdown}</p>
+                              {evaluationResults.evaluation_scores.format.details.sections.missing?.length > 0 && (
+                                <p className="text-red-600 mt-1">Missing: {evaluationResults.evaluation_scores.format.details.sections.missing.join(', ')}</p>
+                              )}
+                            </div>
+                          )}
+                          
+                          {evaluationResults.evaluation_scores.format.details.bullets && (
+                            <div className="bg-white p-3 rounded border">
+                              <p className="font-medium text-gray-700 mb-1">Bullet Points:</p>
+                              <p className="text-gray-600">{evaluationResults.evaluation_scores.format.details.bullets.score_breakdown}</p>
+                              {evaluationResults.evaluation_scores.format.details.bullets.total_bullets > 0 && (
+                                <p className="text-gray-500 text-xs mt-1">
+                                  {evaluationResults.evaluation_scores.format.details.bullets.total_experience_items} entries, 
+                                  avg {evaluationResults.evaluation_scores.format.details.bullets.average_per_item} bullets each
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          
+                          {evaluationResults.evaluation_scores.format.details.page_count && (
+                            <div className="bg-white p-3 rounded border">
+                              <p className="font-medium text-gray-700 mb-1">Page Count:</p>
+                              <p className="text-gray-600">{evaluationResults.evaluation_scores.format.details.page_count.score_breakdown}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Job Compatibility */}
+                {evaluationResults.evaluation_scores?.job_compatibility && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setExpandedSections({...expandedSections, job_compatibility: !expandedSections.job_compatibility})}
+                      className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="text-2xl font-bold text-gray-700">
+                          {evaluationResults.evaluation_scores.job_compatibility.score?.toFixed(1) || 'N/A'}
+                        </div>
+                        <div>
+                          <h4 className="text-lg font-semibold text-gray-900">Job Compatibility</h4>
+                          <p className="text-sm text-gray-500">Keyword matching and semantic similarity</p>
+                        </div>
+                      </div>
+                      <svg
+                        className={`w-5 h-5 text-gray-500 transform transition-transform ${expandedSections.job_compatibility ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    
+                    {expandedSections.job_compatibility && (
+                      <div className="px-6 py-4 border-t bg-gray-50">
+                        {evaluationResults.evaluation_scores.job_compatibility.matched_required?.length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-sm font-semibold text-green-700 mb-2">✓ Matched Keywords ({evaluationResults.evaluation_scores.job_compatibility.matched_required.length}):</p>
+                            <div className="flex flex-wrap gap-2">
+                              {evaluationResults.evaluation_scores.job_compatibility.matched_required.map((keyword: string, idx: number) => (
+                                <span key={idx} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">
+                                  {keyword}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {evaluationResults.evaluation_scores.job_compatibility.missing_required?.length > 0 && (
+                          <div className="mb-4">
+                            <p className="text-sm font-semibold text-red-700 mb-2">⚠ Missing Keywords ({evaluationResults.evaluation_scores.job_compatibility.missing_required.length}):</p>
+                            <div className="flex flex-wrap gap-2">
+                              {evaluationResults.evaluation_scores.job_compatibility.missing_required.map((keyword: string, idx: number) => (
+                                <span key={idx} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded">
+                                  {keyword}
+                                </span>
+                              ))}
+                            </div>
+                            <p className="text-xs text-gray-600 mt-2">Consider adding these keywords to improve compatibility</p>
+                          </div>
+                        )}
+                        
+                        {evaluationResults.evaluation_scores.job_compatibility.soft_similarity && (
+                          <div className="bg-white p-3 rounded border">
+                            <p className="text-sm font-medium text-gray-700">Semantic Similarity: {(evaluationResults.evaluation_scores.job_compatibility.soft_similarity * 100).toFixed(1)}%</p>
+                            <p className="text-xs text-gray-500 mt-1">Overall content similarity with job description</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Grammar Score */}
+                <div className="border rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSections({...expandedSections, grammar: !expandedSections.grammar})}
+                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="text-2xl font-bold text-gray-700">
+                        {evaluationResults.evaluation_scores?.grammar?.score?.toFixed(1) || 'N/A'}
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-semibold text-gray-900">Grammar & Spelling</h4>
+                        <p className="text-sm text-gray-500">
+                          {evaluationResults.evaluation_scores?.grammar?.error_count || 0} errors found
+                          {evaluationResults.evaluation_scores?.grammar?.errors_per_100_words && (
+                            <span> ({evaluationResults.evaluation_scores.grammar.errors_per_100_words.toFixed(1)} per 100 words)</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <svg
+                      className={`w-5 h-5 text-gray-500 transform transition-transform ${expandedSections.grammar ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {expandedSections.grammar && (
+                    <div className="px-6 py-4 border-t bg-gray-50">
+                      {evaluationResults.evaluation_scores?.grammar?.error_count === 0 ? (
+                        <div className="text-green-600 text-sm font-medium">✓ No grammar or spelling errors detected!</div>
+                      ) : (
+                        <>
+                          {evaluationResults.evaluation_scores?.grammar?.top_examples?.length > 0 && (
+                            <div>
+                              <p className="text-sm font-semibold text-red-700 mb-2">Top Issues Found:</p>
+                              <ul className="space-y-2">
+                                {evaluationResults.evaluation_scores.grammar.top_examples.slice(0, 5).map((error: any, idx: number) => (
+                                  <li key={idx} className="bg-white p-3 rounded border text-sm">
+                                    <p className="font-medium text-gray-700">{error.issue}</p>
+                                    <p className="text-gray-600 mt-1">"{error.text}"</p>
+                                    {error.suggestion && (
+                                      <p className="text-green-600 mt-1">→ Suggested: "{error.suggestion}"</p>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* ATS Score */}
+                <div className="border rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setExpandedSections({...expandedSections, ats: !expandedSections.ats})}
+                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="text-2xl font-bold text-gray-700">
+                        {evaluationResults.evaluation_scores?.ats?.score?.toFixed(1) || 'N/A'}
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-semibold text-gray-900">ATS Content Depth</h4>
+                        <p className="text-sm text-gray-500">Action verbs, quantification, clichés, skills</p>
+                      </div>
+                    </div>
+                    <svg
+                      className={`w-5 h-5 text-gray-500 transform transition-transform ${expandedSections.ats ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {expandedSections.ats && (
+                    <div className="px-6 py-4 border-t bg-gray-50 space-y-4">
+                      {/* Strengths */}
+                      {evaluationResults.evaluation_scores?.ats?.strengths?.length > 0 && (
+                        <div>
+                          <p className="text-sm font-semibold text-green-700 mb-2">✓ What's Working Well:</p>
+                          <ul className="list-none space-y-1">
+                            {evaluationResults.evaluation_scores.ats.strengths.map((strength: string, idx: number) => (
+                              <li key={idx} className="text-sm text-green-600">{strength}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {/* Issues */}
+                      {evaluationResults.evaluation_scores?.ats?.issues?.length > 0 && (
+                        <div>
+                          <p className="text-sm font-semibold text-red-700 mb-2">⚠ Areas to Improve:</p>
+                          <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+                            {evaluationResults.evaluation_scores.ats.issues.map((issue: string, idx: number) => (
+                              <li key={idx}>{issue}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {/* Clichés */}
+                      {evaluationResults.evaluation_scores?.ats?.cliches_found?.length > 0 && (
+                        <div>
+                          <p className="text-sm font-semibold text-yellow-700 mb-2">⚠ Clichés Found ({evaluationResults.evaluation_scores.ats.cliches_found.length}):</p>
+                          <div className="flex flex-wrap gap-2">
+                            {evaluationResults.evaluation_scores.ats.cliches_found.map((cliche: string, idx: number) => (
+                              <span key={idx} className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">
+                                {cliche}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-xs text-gray-600 mt-2">Replace these with specific, measurable achievements</p>
+                        </div>
+                      )}
+                      
+                      {/* Detailed Breakdown */}
+                      {evaluationResults.evaluation_scores?.ats?.details && (
+                        <div className="mt-4 space-y-3 text-sm">
+                          {evaluationResults.evaluation_scores.ats.details.action_verbs && (
+                            <div className="bg-white p-3 rounded border">
+                              <p className="font-medium text-gray-700 mb-1">Action Verbs:</p>
+                              <p className="text-gray-600">{evaluationResults.evaluation_scores.ats.details.action_verbs.score_breakdown}</p>
+                              {evaluationResults.evaluation_scores.ats.details.action_verbs.examples_strong?.length > 0 && (
+                                <p className="text-green-600 text-xs mt-1">
+                                  Strong verbs used: {evaluationResults.evaluation_scores.ats.details.action_verbs.examples_strong.join(', ')}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          
+                          {evaluationResults.evaluation_scores.ats.details.quantification && (
+                            <div className="bg-white p-3 rounded border">
+                              <p className="font-medium text-gray-700 mb-1">Quantification:</p>
+                              <p className="text-gray-600">{evaluationResults.evaluation_scores.ats.details.quantification.score_breakdown}</p>
+                              {evaluationResults.evaluation_scores.ats.details.quantification.bullets_with_numbers > 0 && (
+                                <p className="text-gray-500 text-xs mt-1">
+                                  {evaluationResults.evaluation_scores.ats.details.quantification.bullets_with_numbers} bullets with numbers
+                                  {evaluationResults.evaluation_scores.ats.details.quantification.bullets_with_percentages > 0 && 
+                                    `, ${evaluationResults.evaluation_scores.ats.details.quantification.bullets_with_percentages} with percentages`}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          
+                          {evaluationResults.evaluation_scores.ats.details.skills && (
+                            <div className="bg-white p-3 rounded border">
+                              <p className="font-medium text-gray-700 mb-1">Skills:</p>
+                              <p className="text-gray-600">{evaluationResults.evaluation_scores.ats.details.skills.score_breakdown}</p>
+                              {evaluationResults.evaluation_scores.ats.details.skills.missing_skills?.length > 0 && (
+                                <p className="text-red-600 text-xs mt-1">
+                                  Consider adding: {evaluationResults.evaluation_scores.ats.details.skills.missing_skills.slice(0, 5).join(', ')}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Suggestions */}
+                {evaluationResults.suggestions && evaluationResults.suggestions.length > 0 && (
+                  <div className="border rounded-lg p-4 bg-blue-50">
+                    <h4 className="text-lg font-semibold text-gray-900 mb-3">Top Recommendations</h4>
+                    <ol className="list-decimal list-inside text-sm text-gray-700 space-y-2">
+                      {evaluationResults.suggestions.map((suggestion: string, idx: number) => (
+                        <li key={idx}>{suggestion}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={() => {
+                    setShowResultsModal(false)
+                    setEvaluationResults(null)
+                  }}
+                  className="px-6 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

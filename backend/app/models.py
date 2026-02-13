@@ -60,7 +60,9 @@ class ResumeVersion(Base):
     application_id = Column(Integer, ForeignKey("applications.id"), nullable=False)
     file_path = Column(String, nullable=False)
     extracted_text = Column(Text)
+    parsed_sections = Column(JSON)  # Store parsed sections structure
     evaluation_scores = Column(JSON)  # Store all evaluation metrics
+    overall_score = Column(Float)  # Overall score (0-100)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     application = relationship("Application", back_populates="resume_versions")
