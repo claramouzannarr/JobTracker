@@ -23,19 +23,49 @@ except Exception as e:
     skill_embedder = None
     print(f"Warning: Could not load sentence transformer: {e}")
 
-# Default skill vocabulary (can be loaded from CSV later)
+# Expanded skill vocabulary - comprehensive list of technical skills
 DEFAULT_SKILLS = [
-    "Python", "Java", "JavaScript", "TypeScript", "C++", "C#", "Go", "Rust",
-    "React", "Vue", "Angular", "Node.js", "Django", "Flask", "FastAPI",
-    "SQL", "PostgreSQL", "MySQL", "MongoDB", "Redis",
-    "TensorFlow", "PyTorch", "scikit-learn", "pandas", "numpy",
-    "AWS", "Azure", "GCP", "Docker", "Kubernetes", "Git",
-    "Machine Learning", "Deep Learning", "Data Science", "NLP",
-    "Salesforce", "Tableau", "Power BI", "Excel", "Bloomberg",
-    "Agile", "Scrum", "JIRA", "Confluence",
-    "HTML", "CSS", "Tailwind", "Bootstrap",
-    "REST API", "GraphQL", "Microservices",
-    "Linux", "Unix", "Shell Scripting",
+    # Programming Languages
+    "Python", "Java", "JavaScript", "TypeScript", "C++", "C#", "C", "Go", "Rust", "Swift", "Kotlin",
+    "Ruby", "PHP", "Perl", "Scala", "R", "MATLAB", "Julia", "Haskell", "Erlang", "Elixir",
+    # Web Frameworks & Libraries
+    "React", "Vue", "Angular", "Svelte", "Next.js", "Nuxt.js", "Ember.js", "Backbone.js",
+    "Node.js", "Express", "NestJS", "Django", "Flask", "FastAPI", "Spring", "Spring Boot",
+    "ASP.NET", "Laravel", "Symfony", "Ruby on Rails", "Phoenix", "Gin", "Echo",
+    # Databases
+    "SQL", "PostgreSQL", "MySQL", "SQLite", "Oracle", "SQL Server", "MongoDB", "Redis",
+    "Cassandra", "DynamoDB", "CouchDB", "Neo4j", "Elasticsearch", "InfluxDB",
+    # Data Science & ML
+    "TensorFlow", "PyTorch", "Keras", "scikit-learn", "pandas", "numpy", "scipy",
+    "Matplotlib", "Seaborn", "Plotly", "Jupyter", "Apache Spark", "Hadoop", "Hive",
+    "Machine Learning", "Deep Learning", "Data Science", "NLP", "Computer Vision",
+    "Natural Language Processing", "Reinforcement Learning", "Neural Networks",
+    # Cloud & DevOps
+    "AWS", "Azure", "GCP", "Google Cloud", "Docker", "Kubernetes", "K8s", "Terraform",
+    "Ansible", "Jenkins", "GitLab CI", "GitHub Actions", "CircleCI", "Travis CI",
+    "CloudFormation", "Lambda", "EC2", "S3", "RDS", "VPC", "IAM", "CloudWatch",
+    # Tools & Platforms
+    "Git", "SVN", "Mercurial", "JIRA", "Confluence", "Trello", "Asana", "Slack",
+    "Salesforce", "Tableau", "Power BI", "Looker", "Qlik", "Excel", "Bloomberg Terminal",
+    "Splunk", "Datadog", "New Relic", "Grafana", "Prometheus",
+    # Frontend Technologies
+    "HTML", "CSS", "SASS", "SCSS", "Less", "Tailwind CSS", "Bootstrap", "Material-UI",
+    "Ant Design", "Chakra UI", "Styled Components", "Webpack", "Vite", "Parcel",
+    "Babel", "ESLint", "Prettier", "Jest", "Cypress", "Selenium", "Playwright",
+    # APIs & Architecture
+    "REST API", "GraphQL", "gRPC", "SOAP", "Microservices", "Serverless", "Event-Driven",
+    "Message Queue", "RabbitMQ", "Apache Kafka", "Redis Pub/Sub", "WebSocket",
+    # Operating Systems & Scripting
+    "Linux", "Unix", "Windows", "macOS", "Shell Scripting", "Bash", "PowerShell",
+    "Zsh", "Cron", "System Administration",
+    # Security
+    "OAuth", "JWT", "SSL", "TLS", "Encryption", "Penetration Testing", "OWASP",
+    # Methodologies
+    "Agile", "Scrum", "Kanban", "DevOps", "CI/CD", "TDD", "BDD", "Pair Programming",
+    # Finance & Trading
+    "Quantitative Finance", "Algorithmic Trading", "Risk Management", "Derivatives",
+    # Other
+    "Blockchain", "Ethereum", "Solidity", "Smart Contracts", "Web3",
 ]
 
 
@@ -77,23 +107,46 @@ def extract_skills_with_matcher(text: str, skill_vocab: List[str]) -> Set[str]:
 
 
 def find_semantic_skills(text: str, skill_vocab: List[str], threshold: float = 0.6) -> Set[str]:
-    """Find skills using semantic similarity with embeddings."""
+    """Find skills using semantic similarity with embeddings - improved to handle lowercase and context."""
     if skill_embedder is None:
         return set()
     
-    # Extract potential skill phrases (words/phrases that might be skills)
-    # Simple heuristic: capitalize words, technical terms, etc.
+    # Improved extraction: look for technical terms regardless of case
+    # Extract n-grams (1-3 words) that might be skills
     words = text.split()
     potential_skills = []
     
-    # Look for capitalized words/phrases that might be skills
-    for i, word in enumerate(words):
-        if word[0].isupper() and len(word) > 2:
-            # Check if it's part of a multi-word skill
-            phrase = word
-            if i + 1 < len(words) and words[i + 1][0].isupper():
-                phrase = f"{word} {words[i + 1]}"
-            potential_skills.append(phrase)
+    # Extract potential skill phrases (1-3 word n-grams)
+    for i in range(len(words)):
+        # Single word (if it looks technical)
+        word = words[i].strip('.,;:!?()[]{}')
+        if len(word) > 2 and (word[0].isupper() or word.islower()):
+            # Check if it's a known technical term pattern
+            if any(char.isdigit() for char in word) or word.lower() in ['api', 'sdk', 'ide', 'ui', 'ux', 'ci', 'cd']:
+                potential_skills.append(word)
+            elif word[0].isupper() or (word.islower() and len(word) > 4):
+                potential_skills.append(word)
+        
+        # Two-word phrases
+        if i + 1 < len(words):
+            word2 = words[i + 1].strip('.,;:!?()[]{}')
+            phrase = f"{word} {word2}"
+            # Include if at least one word is capitalized or both are lowercase technical terms
+            if (word[0].isupper() or word2[0].isupper()) or (word.islower() and word2.islower() and len(phrase) > 6):
+                potential_skills.append(phrase)
+        
+        # Three-word phrases (for skills like "Machine Learning", "Natural Language Processing")
+        if i + 2 < len(words):
+            word2 = words[i + 1].strip('.,;:!?()[]{}')
+            word3 = words[i + 2].strip('.,;:!?()[]{}')
+            phrase = f"{word} {word2} {word3}"
+            if word[0].isupper() and word2[0].isupper():
+                potential_skills.append(phrase)
+    
+    # Remove duplicates and filter out common non-technical words
+    potential_skills = list(set(potential_skills))
+    common_words = {'the', 'and', 'or', 'but', 'with', 'for', 'from', 'this', 'that', 'these', 'those'}
+    potential_skills = [p for p in potential_skills if p.lower() not in common_words and len(p) > 2]
     
     if not potential_skills:
         return set()
@@ -129,6 +182,24 @@ def extract_skills(text: str, skill_vocab: Optional[List[str]] = None) -> Set[st
     semantic_skills = find_semantic_skills(text, skill_vocab)
     
     return exact_skills.union(semantic_skills)
+
+
+def extract_skills_from_bullets(bullets: List[str], skill_vocab: Optional[List[str]] = None) -> Dict[str, Set[str]]:
+    """
+    Extract skills per bullet point for better context.
+    Returns a dict mapping bullet index to set of skills found in that bullet.
+    """
+    if skill_vocab is None:
+        skill_vocab = load_skill_vocabulary()
+    
+    bullet_skills = {}
+    for idx, bullet in enumerate(bullets):
+        if bullet.strip():
+            skills = extract_skills(bullet, skill_vocab)
+            if skills:
+                bullet_skills[idx] = skills
+    
+    return bullet_skills
 
 
 def extract_skills_from_job_description(jd_text: str, skill_vocab: Optional[List[str]] = None) -> Set[str]:

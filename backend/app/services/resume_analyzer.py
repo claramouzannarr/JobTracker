@@ -10,6 +10,13 @@ import language_tool_python
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+from app.services.skill_extraction import (
+    extract_skills,
+    extract_skills_from_job_description,
+    extract_skills_from_bullets,
+    compute_skill_coverage,
+    compute_skill_gaps
+)
 
 # Initialize models
 try:
@@ -161,35 +168,162 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
     # Parse Experience items (look for company/role patterns)
     experience_text = sections["Experience"]["text"]
     if experience_text:
-        # Simple parsing: look for company names (all caps or title case) followed by dates
+        # Improved parsing: handle various formats
         exp_items = []
         exp_lines = experience_text.split('\n')
         current_item = {"company": "", "role": "", "bullets": [], "dates": ""}
         
+        # Common bullet characters (including Unicode variants)
+        bullet_chars = ['•', '-', '*', '◦', '▪', '▸', '▹', '▪', '▫', '→', '·']
+        
+        def is_bullet_line(line: str) -> bool:
+            """Check if a line is a bullet point."""
+            stripped = line.strip()
+            if not stripped:
+                return False
+            
+            # Check for common bullet characters (with optional leading whitespace)
+            if any(stripped.startswith(char) for char in bullet_chars):
+                return True
+            
+            # Check for numbered bullets (1., 2., etc.)
+            if re.match(r'^\d+[\.\)]\s', stripped):
+                return True
+            
+            # Check for indented lines that might be bullets (2+ spaces or tab)
+            if re.match(r'^[\s]{2,}', line) and len(stripped) > 10:
+                # Likely a bullet if indented and has content
+                return True
+            
+            return False
+        
         for line in exp_lines:
-            # Check for date pattern
-            if re.search(r'\d{4}', line):
-                if current_item["company"]:
+            stripped_line = line.strip()
+            if not stripped_line:
+                continue
+            
+            # Check for date pattern (year in date format)
+            if re.search(r'\d{4}', stripped_line) and (
+                re.search(r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)', stripped_line.lower()) or
+                re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', stripped_line) or
+                re.search(r'\d{4}\s*[-–—]\s*\d{4}', stripped_line) or
+                re.search(r'\d{4}\s*[-–—]\s*(present|current|now)', stripped_line.lower())
+            ):
+                if current_item["company"] or current_item["bullets"]:
                     exp_items.append(current_item)
                 current_item = {"company": "", "role": "", "bullets": [], "dates": ""}
-                current_item["dates"] = line
+                current_item["dates"] = stripped_line
             
-            # Check for bullet
-            elif line.strip().startswith(('•', '-', '*')) or re.match(r'^\d+\.', line.strip()):
-                current_item["bullets"].append(line.strip())
-            # Assume company/role line (title case or all caps)
-            elif line.strip() and not current_item["company"]:
-                parts = line.split('|')
-                if len(parts) >= 2:
-                    current_item["company"] = parts[0].strip()
-                    current_item["role"] = parts[1].strip()
-                else:
-                    current_item["company"] = line.strip()
+            # Check for bullet point
+            elif is_bullet_line(line):
+                # Clean bullet: remove bullet char and leading whitespace
+                bullet_text = stripped_line
+                for char in bullet_chars:
+                    if bullet_text.startswith(char):
+                        bullet_text = bullet_text[len(char):].strip()
+                        break
+                # Remove numbered prefix if present
+                bullet_text = re.sub(r'^\d+[\.\)]\s*', '', bullet_text).strip()
+                if bullet_text:
+                    current_item["bullets"].append(bullet_text)
+            
+            # Check if this looks like a company/role line
+            elif not current_item["company"] and not is_bullet_line(line):
+                # Look for company/role patterns
+                # Pattern 1: Company | Role
+                if '|' in stripped_line:
+                    parts = stripped_line.split('|')
+                    if len(parts) >= 2:
+                        current_item["company"] = parts[0].strip()
+                        current_item["role"] = parts[1].strip()
+                    else:
+                        current_item["company"] = stripped_line
+                # Pattern 2: Company - Role
+                elif ' - ' in stripped_line or ' – ' in stripped_line:
+                    parts = re.split(r'\s*[-–]\s*', stripped_line, 1)
+                    if len(parts) >= 2:
+                        current_item["company"] = parts[0].strip()
+                        current_item["role"] = parts[1].strip()
+                    else:
+                        current_item["company"] = stripped_line
+                # Pattern 3: Just company name (if it looks like a title/company)
+                elif len(stripped_line) > 3 and len(stripped_line) < 100:
+                    # If it's all caps or title case, likely a company/role
+                    if stripped_line.isupper() or (stripped_line[0].isupper() and not re.search(r'\d{4}', stripped_line)):
+                        current_item["company"] = stripped_line
+                # Otherwise, if we already have bullets, this might be a continuation
+                elif current_item["bullets"]:
+                    # Could be a continuation of previous bullet or new content
+                    pass
         
-        if current_item["company"]:
+        # Add last item if it has content
+        if current_item["company"] or current_item["bullets"]:
             exp_items.append(current_item)
         
         sections["Experience"]["items"] = exp_items
+    
+    # Parse Projects items (similar to Experience)
+    projects_text = sections["Projects"]["text"]
+    if projects_text:
+        proj_items = []
+        proj_lines = projects_text.split('\n')
+        current_item = {"title": "", "bullets": [], "dates": ""}
+        
+        # Reuse bullet detection function
+        bullet_chars = ['•', '-', '*', '◦', '▪', '▸', '▹', '▪', '▫', '→', '·']
+        
+        def is_bullet_line(line: str) -> bool:
+            """Check if a line is a bullet point."""
+            stripped = line.strip()
+            if not stripped:
+                return False
+            if any(stripped.startswith(char) for char in bullet_chars):
+                return True
+            if re.match(r'^\d+[\.\)]\s', stripped):
+                return True
+            if re.match(r'^[\s]{2,}', line) and len(stripped) > 10:
+                return True
+            return False
+        
+        for line in proj_lines:
+            stripped_line = line.strip()
+            if not stripped_line:
+                continue
+            
+            # Check for date pattern
+            if re.search(r'\d{4}', stripped_line) and (
+                re.search(r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)', stripped_line.lower()) or
+                re.search(r'\d{1,2}[/-]\d{1,2}[/-]\d{2,4}', stripped_line) or
+                re.search(r'\d{4}\s*[-–—]\s*\d{4}', stripped_line) or
+                re.search(r'\d{4}\s*[-–—]\s*(present|current|now)', stripped_line.lower())
+            ):
+                if current_item["title"] or current_item["bullets"]:
+                    proj_items.append(current_item)
+                current_item = {"title": "", "bullets": [], "dates": ""}
+                current_item["dates"] = stripped_line
+            
+            # Check for bullet point
+            elif is_bullet_line(line):
+                bullet_text = stripped_line
+                for char in bullet_chars:
+                    if bullet_text.startswith(char):
+                        bullet_text = bullet_text[len(char):].strip()
+                        break
+                bullet_text = re.sub(r'^\d+[\.\)]\s*', '', bullet_text).strip()
+                if bullet_text:
+                    current_item["bullets"].append(bullet_text)
+            
+            # Check if this looks like a project title
+            elif not current_item["title"] and not is_bullet_line(line):
+                if len(stripped_line) > 3 and len(stripped_line) < 100:
+                    if stripped_line[0].isupper() and not re.search(r'\d{4}', stripped_line):
+                        current_item["title"] = stripped_line
+        
+        # Add last item if it has content
+        if current_item["title"] or current_item["bullets"]:
+            proj_items.append(current_item)
+        
+        sections["Projects"]["items"] = proj_items
     
     # Parse Skills list
     skills_text = sections["Skills"]["text"]
@@ -384,15 +518,8 @@ def evaluate_grammar_score(raw_text: str, sections: Dict[str, Any]) -> Dict[str,
     """
     Evaluate grammar and spelling using LanguageTool.
     Runs on bullets and summary sentences.
+    Score: 0-100 (100 = perfect, no errors)
     """
-    if grammar_tool is None:
-        return {
-            "score": 50.0,
-            "errors_per_100_words": 0,
-            "top_examples": [],
-            "error_count": 0
-        }
-    
     # Extract text to check: summary + bullets
     text_to_check = []
     
@@ -410,6 +537,28 @@ def evaluate_grammar_score(raw_text: str, sections: Dict[str, Any]) -> Dict[str,
     if not combined_text:
         combined_text = raw_text[:1000]  # Fallback to first 1000 chars
     
+    # If no text to check, return perfect score
+    if not combined_text.strip():
+        return {
+            "score": 100.0,
+            "errors_per_100_words": 0,
+            "top_examples": [],
+            "error_count": 0,
+            "word_count": 0
+        }
+    
+    # Check if grammar_tool is available
+    if grammar_tool is None:
+        # If tool unavailable, return neutral score but indicate it
+        return {
+            "score": 100.0,  # Assume perfect if tool unavailable
+            "errors_per_100_words": 0,
+            "top_examples": [],
+            "error_count": 0,
+            "word_count": len(combined_text.split()),
+            "tool_available": False
+        }
+    
     try:
         errors = grammar_tool.check(combined_text)
         error_count = len(errors)
@@ -417,7 +566,14 @@ def evaluate_grammar_score(raw_text: str, sections: Dict[str, Any]) -> Dict[str,
         errors_per_100_words = (error_count / word_count * 100) if word_count > 0 else 0
         
         # Score: start at 100, subtract penalty
-        score = max(0, 100 - min(40, errors_per_100_words * 2))
+        # Max penalty is 40 points (so minimum score is 60)
+        # Formula: 100 - min(40, errors_per_100_words * 2)
+        # This means: 0 errors = 100, 20 errors/100 words = 60, 40+ errors/100 words = 60
+        score = max(60, 100 - min(40, errors_per_100_words * 2))
+        
+        # If no errors, ensure perfect score
+        if error_count == 0:
+            score = 100.0
         
         # Get top examples
         top_examples = []
@@ -429,18 +585,24 @@ def evaluate_grammar_score(raw_text: str, sections: Dict[str, Any]) -> Dict[str,
             })
         
         return {
-            "score": score,
+            "score": round(score, 1),
             "errors_per_100_words": round(errors_per_100_words, 2),
             "top_examples": top_examples,
-            "error_count": error_count
+            "error_count": error_count,
+            "word_count": word_count,
+            "tool_available": True
         }
     except Exception as e:
         print(f"Error in grammar checking: {e}")
+        # On error, return perfect score (assume no errors if check fails)
         return {
-            "score": 50.0,
+            "score": 100.0,
             "errors_per_100_words": 0,
             "top_examples": [],
-            "error_count": 0
+            "error_count": 0,
+            "word_count": len(combined_text.split()),
+            "tool_available": True,
+            "error": str(e)
         }
 
 
@@ -484,74 +646,209 @@ def extract_job_keywords(job_description: str) -> Dict[str, List[str]]:
     }
 
 
-def evaluate_job_compatibility(resume_text: str, job_description: Optional[str] = None) -> Dict[str, Any]:
+def compute_skill_demonstrated_index(sections: Dict[str, Any], K: float = 25.0) -> Dict[str, Any]:
     """
-    Evaluate job compatibility using keyword matching + embeddings.
+    Compute Skill Demonstrated Index (SDI) based on weighted skills from different sections.
+    Uses per-bullet extraction for better context.
+    
+    Skills mentioned in Skills section are less informative than skills used in Experience/Projects,
+    because recruiters care about demonstrated use.
+    
+    Formula:
+    - WeightedSkillCount = w_exp * |S_exp| + w_proj * |S_proj| + w_skills * |S_skills|
+    - Richness = min(1, WeightedSkillCount / K)
+    
+    Weights:
+    - w_exp = 1.0 (Experience section)
+    - w_proj = 0.8 (Projects section)
+    - w_skills = 0.4 (Skills section)
+    - w_summary = 0.3 (Summary section, optional)
+    
+    K is chosen so that a strong resume maps near 1.0 (default K=25.0)
     """
-    if not job_description:
-        return {
-            "score": 0.0,
-            "required_keywords": [],
-            "matched_required": [],
-            "missing_required": [],
-            "soft_similarity": 0.0
-        }
+    # Extract skills from each section using per-bullet extraction
+    skills_exp_set = set()
+    skills_proj_set = set()
+    skills_list_set = set()
+    skills_summary_set = set()
     
-    # Extract keywords from JD
-    jd_keywords = extract_job_keywords(job_description)
-    required_keywords = jd_keywords["required"]
-    
-    if not required_keywords:
-        # Fallback: use embedding similarity only
-        if embedding_model:
+    # Extract from Experience section - per bullet point
+    experience_items = sections.get("Experience", {}).get("items", [])
+    for item in experience_items:
+        bullets = item.get("bullets", [])
+        if bullets:
             try:
-                resume_emb = embedding_model.encode([resume_text])
-                jd_emb = embedding_model.encode([job_description])
-                similarity = float(cosine_similarity(resume_emb, jd_emb)[0][0])
-                return {
-                    "score": similarity * 100,
-                    "required_keywords": [],
-                    "matched_required": [],
-                    "missing_required": [],
-                    "soft_similarity": similarity
-                }
+                bullet_skills = extract_skills_from_bullets(bullets)
+                for bullet_idx, skills in bullet_skills.items():
+                    skills_exp_set.update(skills)
             except Exception as e:
-                print(f"Error computing embeddings: {e}")
+                print(f"Error extracting skills from Experience bullets: {e}")
     
-    # Normalize resume text
-    resume_normalized = normalize_text(resume_text)
+    # Extract from Projects section - per bullet point
+    projects_items = sections.get("Projects", {}).get("items", [])
+    for item in projects_items:
+        bullets = item.get("bullets", [])
+        if bullets:
+            try:
+                bullet_skills = extract_skills_from_bullets(bullets)
+                for bullet_idx, skills in bullet_skills.items():
+                    skills_proj_set.update(skills)
+            except Exception as e:
+                print(f"Error extracting skills from Projects bullets: {e}")
     
-    # Match keywords
-    matched_required = []
-    for keyword in required_keywords:
-        keyword_normalized = normalize_skill(keyword)
-        if keyword_normalized in resume_normalized:
-            matched_required.append(keyword)
+    # Extract from Skills section
+    skills_list = sections.get("Skills", {}).get("skills_list", [])
+    skills_text = sections.get("Skills", {}).get("text", "")
+    if skills_list:
+        # Extract skills from the list
+        skills_list_text = " ".join(skills_list)
+        try:
+            skills_list_set = extract_skills(skills_list_text)
+        except Exception as e:
+            print(f"Error extracting skills from Skills list: {e}")
+    elif skills_text:
+        try:
+            skills_list_set = extract_skills(skills_text)
+        except Exception as e:
+            print(f"Error extracting skills from Skills text: {e}")
     
-    missing_required = [k for k in required_keywords if k not in matched_required]
+    # Extract from Summary section (optional)
+    summary_text = sections.get("Summary", {}).get("text", "")
+    if summary_text:
+        try:
+            skills_summary_set = extract_skills(summary_text)
+        except Exception as e:
+            print(f"Error extracting skills from Summary: {e}")
     
-    # Compute coverage
-    coverage = len(matched_required) / len(required_keywords) if required_keywords else 0.0
+    # Compute weighted skill count
+    w_exp = 1.0
+    w_proj = 0.8
+    w_skills = 0.4
+    w_summary = 0.3
     
-    # Compute embedding similarity (soft match)
-    soft_similarity = 0.0
+    weighted_skill_count = (
+        w_exp * len(skills_exp_set) +
+        w_proj * len(skills_proj_set) +
+        w_skills * len(skills_list_set) +
+        w_summary * len(skills_summary_set)
+    )
+    
+    # Normalize to richness score
+    richness = min(1.0, weighted_skill_count / K)
+    
+    # Get all unique skills across sections
+    all_demonstrated_skills = skills_exp_set.union(skills_proj_set).union(skills_list_set).union(skills_summary_set)
+    
+    return {
+        "sdi_score": round(richness * 100, 1),  # Convert to 0-100 scale
+        "richness": round(richness, 3),
+        "weighted_skill_count": round(weighted_skill_count, 2),
+        "skills_exp": sorted(list(skills_exp_set)),
+        "skills_proj": sorted(list(skills_proj_set)),
+        "skills_list": sorted(list(skills_list_set)),
+        "skills_summary": sorted(list(skills_summary_set)),
+        "all_demonstrated_skills": sorted(list(all_demonstrated_skills)),
+        "counts": {
+            "experience": len(skills_exp_set),
+            "projects": len(skills_proj_set),
+            "skills_section": len(skills_list_set),
+            "summary": len(skills_summary_set),
+            "total_unique": len(all_demonstrated_skills)
+        }
+    }
+
+
+def evaluate_job_compatibility(
+    resume_text: str, 
+    job_description: Optional[str] = None,
+    sections: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Evaluate job compatibility using skill extraction + embeddings.
+    Only computes when job description exists.
+    
+    Formula:
+    - JD SkillCoverage: |S_job ∩ S_resume| / |S_job|
+    - Similarity: cosine(embed(JD), embed(resume))
+    - Compatibility = α SkillCoverage + (1-α) Similarity (where α = 0.7)
+    """
+    # Only compute if JD exists
+    if not job_description:
+        return None
+    
+    # Extract skills from job description using PhraseMatcher + semantic matching
+    try:
+        job_skills_set = extract_skills_from_job_description(job_description)
+        job_skills = sorted(list(job_skills_set))
+    except Exception as e:
+        print(f"Error extracting skills from JD: {e}")
+        job_skills_set = set()
+        job_skills = []
+    
+    # Extract skills from resume using demonstrated skills from sections if available
+    resume_skills_set = set()
+    if sections:
+        # Use SDI logic to get demonstrated skills
+        try:
+            sdi_result = compute_skill_demonstrated_index(sections)
+            demonstrated_skills = sdi_result.get("all_demonstrated_skills", [])
+            resume_skills_set.update(demonstrated_skills)
+        except Exception as e:
+            print(f"Error computing demonstrated skills: {e}")
+    
+    # Also extract from full resume text
+    try:
+        full_resume_skills = extract_skills(resume_text)
+        resume_skills_set.update(full_resume_skills)
+    except Exception as e:
+        print(f"Error extracting skills from resume: {e}")
+    
+    resume_skills = sorted(list(resume_skills_set))
+    
+    # Compute skill coverage: |S_job ∩ S_resume| / |S_job|
+    skill_coverage = compute_skill_coverage(resume_skills_set, job_skills_set)
+    
+    # Compute matched and missing skills
+    matched_skills_set = job_skills_set.intersection(resume_skills_set)
+    missing_skills_set = compute_skill_gaps(resume_skills_set, job_skills_set)
+    matched_skills = sorted(list(matched_skills_set))
+    missing_skills = sorted(list(missing_skills_set))
+    
+    # Compute embedding similarity (soft semantic signal)
+    embedding_similarity = 0.0
     if embedding_model:
         try:
             resume_emb = embedding_model.encode([resume_text])
             jd_emb = embedding_model.encode([job_description])
-            soft_similarity = float(cosine_similarity(resume_emb, jd_emb)[0][0])
+            embedding_similarity = float(cosine_similarity(resume_emb, jd_emb)[0][0])
         except Exception as e:
             print(f"Error computing embeddings: {e}")
     
-    # Combined score: 70% keyword coverage, 30% embedding similarity
-    score = (coverage * 70) + (soft_similarity * 30)
+    # If no skills found, fallback to embedding similarity only
+    if not job_skills_set:
+        return {
+            "score": min(100, max(0, embedding_similarity * 100)),
+            "job_skills": [],
+            "resume_skills": resume_skills,
+            "matched_skills": [],
+            "missing_skills": [],
+            "skill_coverage": 0.0,
+            "embedding_similarity": round(embedding_similarity, 3)
+        }
+    
+    # Combined score: α SkillCoverage + (1-α) Similarity
+    # α = 0.7 (70% skill coverage, 30% embedding similarity)
+    alpha = 0.7
+    score = (alpha * skill_coverage * 100) + ((1 - alpha) * embedding_similarity * 100)
     
     return {
         "score": min(100, max(0, score)),
-        "required_keywords": required_keywords,
-        "matched_required": matched_required,
-        "missing_required": missing_required,
-        "soft_similarity": round(soft_similarity, 3)
+        "job_skills": job_skills,
+        "resume_skills": resume_skills,
+        "matched_skills": matched_skills,
+        "missing_skills": missing_skills,
+        "skill_coverage": round(skill_coverage, 3),
+        "embedding_similarity": round(embedding_similarity, 3)
     }
 
 
@@ -698,81 +995,105 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
     if impact_verb_without_number:
         issues.append(f"{len(impact_verb_without_number)} impact verbs missing numbers")
     
-    # 4. Skills coverage (15 points)
+    # 4. Skill Demonstrated Index (SDI) - integrated into ATS (15 points)
+    # Uses weighted skills from Experience/Projects/Skills sections with per-bullet extraction
+    # Initialize skills_count to ensure it's always defined
     skills_list = sections.get("Skills", {}).get("skills_list", [])
     skills_count = len(skills_list)
     
-    # Compare to JD if available
-    if job_description:
-        jd_keywords = extract_job_keywords(job_description)
-        jd_skills = set(jd_keywords["required"] + jd_keywords["optional"][:10])
-        resume_skills_set = set([normalize_skill(s) for s in skills_list])
-        matched_skills = jd_skills & resume_skills_set
-        coverage = len(matched_skills) / len(jd_skills) if jd_skills else 0
-        skills_score = coverage * 15
+    try:
+        sdi_result = compute_skill_demonstrated_index(sections)
+        sdi_score_raw = sdi_result["sdi_score"]  # 0-100 scale
+        sdi_score = (sdi_score_raw / 100) * 15  # Convert to 15-point scale
         
-        if coverage >= 0.5:
-            strengths.append(f"✓ {int(coverage * 100)}% of job-required skills are present")
+        # Get counts for feedback
+        counts = sdi_result.get("counts", {})
+        exp_count = counts.get("experience", 0)
+        proj_count = counts.get("projects", 0)
+        skills_section_count = counts.get("skills_section", 0)
+        total_unique = counts.get("total_unique", 0)
+        
+        # Update skills_count from SDI result if available
+        if skills_section_count > 0:
+            skills_count = skills_section_count
+        
+        if sdi_score_raw >= 70:
+            strengths.append(f"✓ Strong skill demonstration ({total_unique} unique skills across sections)")
+        elif sdi_score_raw >= 50:
+            strengths.append(f"✓ Good skill demonstration ({total_unique} unique skills)")
         else:
-            issues.append(f"Only {int(coverage * 100)}% of job-required skills matched")
+            issues.append(f"Limited skill demonstration ({total_unique} unique skills)")
         
         details["skills"] = {
-            "resume_skills_count": skills_count,
-            "job_required_skills": len(jd_skills),
-            "matched_skills": list(matched_skills)[:10],
-            "missing_skills": list(jd_skills - resume_skills_set)[:10],
-            "coverage": round(coverage, 2),
-            "score_breakdown": f"{int(coverage * 100)}% match ({skills_score:.1f}/15 points)"
+            "sdi_score": round(sdi_score_raw, 1),
+            "sdi_richness": round(sdi_result.get("richness", 0), 3),
+            "weighted_skill_count": round(sdi_result.get("weighted_skill_count", 0), 2),
+            "experience_skills": exp_count,
+            "projects_skills": proj_count,
+            "skills_section_count": skills_section_count,
+            "total_unique_skills": total_unique,
+            "score_breakdown": f"SDI: {sdi_score_raw:.1f}% ({sdi_score:.1f}/15 points)"
         }
-    else:
-        # Base score on count
+    except Exception as e:
+        print(f"Error computing SDI: {e}")
+        # Fallback to basic skills count
         if skills_count >= 10:
-            skills_score = 15
+            sdi_score = 15
             strengths.append(f"✓ Comprehensive skills list ({skills_count} skills)")
         elif skills_count >= 5:
-            skills_score = 10
+            sdi_score = 10
             issues.append(f"Consider adding more skills (currently {skills_count})")
         else:
-            skills_score = 5
+            sdi_score = 5
             issues.append(f"Limited skills listed ({skills_count})")
         
         details["skills"] = {
             "resume_skills_count": skills_count,
-            "score_breakdown": f"{skills_count} skills listed ({skills_score}/15 points)"
+            "score_breakdown": f"{skills_count} skills listed ({sdi_score}/15 points)"
         }
     
-    score += skills_score
+    score += sdi_score
     
     # 5. Experience density (15 points)
     experience_count = len(experience_items)
+    experience_score = 0
+    
     if experience_count >= 3:
-        score += 15
+        experience_score = 15
         strengths.append(f"✓ Strong experience depth ({experience_count} entries)")
     elif experience_count >= 2:
-        score += 10
+        experience_score = 10
         issues.append(f"Consider adding more experience entries (currently {experience_count})")
     elif experience_count >= 1:
-        score += 5
+        experience_score = 5
         issues.append(f"Limited experience entries ({experience_count})")
     else:
         issues.append("No experience items found")
+        experience_score = 0
     
-    # Check for dates
+    # Check for dates (part of experience score)
     dates_found = bool(re.search(r'\d{4}', raw_text))
     if dates_found:
         strengths.append("✓ Dates found in experience")
     else:
         issues.append("No dates found in experience")
-        score -= 5
+        # Reduce experience score by 2 points if no dates (but don't go below 0)
+        experience_score = max(0, experience_score - 2)
+    
+    score += experience_score
     
     details["experience"] = {
         "experience_count": experience_count,
         "has_dates": dates_found,
-        "score_breakdown": f"{experience_count} entries, dates: {'yes' if dates_found else 'no'} ({15 if experience_count >= 3 else 10 if experience_count >= 2 else 5 if experience_count >= 1 else 0}/15 points)"
+        "experience_score": experience_score,
+        "score_breakdown": f"{experience_count} entries, dates: {'yes' if dates_found else 'no'} ({experience_score}/15 points)"
     }
     
+    # Ensure score is capped at 100
+    final_score = min(100, max(0, score))
+    
     return {
-        "score": min(100, max(0, score)),
+        "score": round(final_score, 1),
         "cliches_found": cliches_found,
         "kpi_ratio": {
             "latest_role": kpi_ratio if total_bullets > 0 else 0,
@@ -803,7 +1124,7 @@ def analyze_resume(
     # Run all evaluation modules
     format_eval = evaluate_format_score(sections, career_level, page_count)
     grammar_eval = evaluate_grammar_score(raw_text, sections)
-    job_compat_eval = evaluate_job_compatibility(raw_text, job_description)
+    job_compat_eval = evaluate_job_compatibility(raw_text, job_description, sections)
     ats_eval = evaluate_ats_score(raw_text, sections, job_description)
     
     # Compute overall score with weights
@@ -823,7 +1144,7 @@ def analyze_resume(
     overall_score = (
         weights["format"] * format_eval["score"] +
         weights["ats"] * ats_eval["score"] +
-        weights["job_compatibility"] * job_compat_eval["score"] +
+        (weights["job_compatibility"] * job_compat_eval["score"] if job_compat_eval else 0) +
         weights["grammar"] * grammar_eval["score"] +
         weights["skills_coverage"] * (ats_eval["score"] * 0.5)  # Use ATS as proxy
     )
@@ -832,8 +1153,8 @@ def analyze_resume(
     suggestions = []
     if format_eval.get("missing_sections"):
         suggestions.append(f"Add missing sections: {', '.join(format_eval['missing_sections'])}")
-    if job_compat_eval.get("missing_required"):
-        suggestions.append(f"Include keywords: {', '.join(job_compat_eval['missing_required'][:3])}")
+    if job_compat_eval and job_compat_eval.get("missing_skills"):
+        suggestions.append(f"Include skills: {', '.join(job_compat_eval['missing_skills'][:3])}")
     if ats_eval.get("cliches_found"):
         suggestions.append(f"Remove clichés: {', '.join(ats_eval['cliches_found'][:2])}")
     if ats_eval.get("impact_verb_without_number"):

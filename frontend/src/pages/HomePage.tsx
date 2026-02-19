@@ -780,7 +780,7 @@ export default function HomePage() {
                   )}
                 </div>
 
-                {/* Job Compatibility */}
+                {/* Job Compatibility - Only shown when JD exists */}
                 {evaluationResults.evaluation_scores?.job_compatibility && (
                   <div className="border rounded-lg overflow-hidden">
                     <button
@@ -793,7 +793,7 @@ export default function HomePage() {
                         </div>
                         <div>
                           <h4 className="text-lg font-semibold text-gray-900">Job Compatibility</h4>
-                          <p className="text-sm text-gray-500">Keyword matching and semantic similarity</p>
+                          <p className="text-sm text-gray-500">Skill coverage and semantic similarity</p>
                         </div>
                       </div>
                       <svg
@@ -808,36 +808,49 @@ export default function HomePage() {
                     
                     {expandedSections.job_compatibility && (
                       <div className="px-6 py-4 border-t bg-gray-50">
-                        {evaluationResults.evaluation_scores.job_compatibility.matched_required?.length > 0 && (
+                        {/* JD Skill Coverage */}
+                        {evaluationResults.evaluation_scores.job_compatibility.skill_coverage !== undefined && (
+                          <div className="mb-4 bg-white p-3 rounded border">
+                            <p className="text-sm font-semibold text-gray-900 mb-2">JD Skill Coverage</p>
+                            <p className="text-sm font-medium text-gray-700 mb-1">
+                              Coverage: {(evaluationResults.evaluation_scores.job_compatibility.skill_coverage * 100).toFixed(1)}%
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {evaluationResults.evaluation_scores.job_compatibility.matched_skills?.length || 0} of {evaluationResults.evaluation_scores.job_compatibility.job_skills?.length || 0} required skills found
+                            </p>
+                          </div>
+                        )}
+                        
+                        {evaluationResults.evaluation_scores.job_compatibility.matched_skills?.length > 0 && (
                           <div className="mb-4">
-                            <p className="text-sm font-semibold text-green-700 mb-2">✓ Matched Keywords ({evaluationResults.evaluation_scores.job_compatibility.matched_required.length}):</p>
+                            <p className="text-sm font-semibold text-green-700 mb-2">✓ Matched Skills ({evaluationResults.evaluation_scores.job_compatibility.matched_skills.length}):</p>
                             <div className="flex flex-wrap gap-2">
-                              {evaluationResults.evaluation_scores.job_compatibility.matched_required.map((keyword: string, idx: number) => (
+                              {evaluationResults.evaluation_scores.job_compatibility.matched_skills.map((skill: string, idx: number) => (
                                 <span key={idx} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">
-                                  {keyword}
+                                  {skill}
                                 </span>
                               ))}
                             </div>
                           </div>
                         )}
                         
-                        {evaluationResults.evaluation_scores.job_compatibility.missing_required?.length > 0 && (
+                        {evaluationResults.evaluation_scores.job_compatibility.missing_skills?.length > 0 && (
                           <div className="mb-4">
-                            <p className="text-sm font-semibold text-red-700 mb-2">⚠ Missing Keywords ({evaluationResults.evaluation_scores.job_compatibility.missing_required.length}):</p>
+                            <p className="text-sm font-semibold text-red-700 mb-2">⚠ Missing Skills ({evaluationResults.evaluation_scores.job_compatibility.missing_skills.length}):</p>
                             <div className="flex flex-wrap gap-2">
-                              {evaluationResults.evaluation_scores.job_compatibility.missing_required.map((keyword: string, idx: number) => (
+                              {evaluationResults.evaluation_scores.job_compatibility.missing_skills.map((skill: string, idx: number) => (
                                 <span key={idx} className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded">
-                                  {keyword}
+                                  {skill}
                                 </span>
                               ))}
                             </div>
-                            <p className="text-xs text-gray-600 mt-2">Consider adding these keywords to improve compatibility</p>
+                            <p className="text-xs text-gray-600 mt-2">Consider adding these skills to improve compatibility</p>
                           </div>
                         )}
                         
-                        {evaluationResults.evaluation_scores.job_compatibility.soft_similarity && (
+                        {evaluationResults.evaluation_scores.job_compatibility.embedding_similarity !== undefined && evaluationResults.evaluation_scores.job_compatibility.embedding_similarity > 0 && (
                           <div className="bg-white p-3 rounded border">
-                            <p className="text-sm font-medium text-gray-700">Semantic Similarity: {(evaluationResults.evaluation_scores.job_compatibility.soft_similarity * 100).toFixed(1)}%</p>
+                            <p className="text-sm font-medium text-gray-700">Semantic Similarity: {(evaluationResults.evaluation_scores.job_compatibility.embedding_similarity * 100).toFixed(1)}%</p>
                             <p className="text-xs text-gray-500 mt-1">Overall content similarity with job description</p>
                           </div>
                         )}
