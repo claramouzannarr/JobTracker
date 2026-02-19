@@ -115,6 +115,7 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
     lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
     current_section = "Other"
     current_content = []
+    section_sequence = []  # Track actual order sections appear in resume
     
     # Section heading patterns
     section_patterns = {
@@ -142,7 +143,7 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         
         sections["Header"]["lines"].append(line)
     
-    # Parse sections
+    # Parse sections and track order
     for i, line in enumerate(lines):
         line_lower = line.lower().strip()
         is_heading = False
@@ -152,6 +153,10 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
                 # Save previous section
                 if current_section != "Other" and current_content:
                     sections[current_section]["text"] = "\n".join(current_content)
+                
+                # Track section order (only add once per section)
+                if section_name not in section_sequence:
+                    section_sequence.append(section_name)
                 
                 current_section = section_name
                 current_content = []
@@ -165,8 +170,11 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
     if current_content:
         sections[current_section]["text"] = "\n".join(current_content)
     
+    # Store section sequence for ordering evaluation
+    sections["_section_sequence"] = section_sequence
+    
     # Parse Experience items (look for company/role patterns)
-    experience_text = sections["Experience"]["text"]
+    experience_text = sections.get("Experience", {}).get("text", "")
     if experience_text:
         # Improved parsing: handle various formats
         exp_items = []
@@ -263,7 +271,7 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         sections["Experience"]["items"] = exp_items
     
     # Parse Projects items (similar to Experience)
-    projects_text = sections["Projects"]["text"]
+    projects_text = sections.get("Projects", {}).get("text", "")
     if projects_text:
         proj_items = []
         proj_lines = projects_text.split('\n')
@@ -326,7 +334,7 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         sections["Projects"]["items"] = proj_items
     
     # Parse Skills list
-    skills_text = sections["Skills"]["text"]
+    skills_text = sections.get("Skills", {}).get("text", "")
     if skills_text:
         # Extract skills (comma-separated, bullet points, or line-separated)
         skills_list = []
@@ -421,9 +429,35 @@ def evaluate_format_score(sections: Dict[str, Any], career_level: str = "experie
         # Recommended: Header → Summary → Experience → Skills → Education
         recommended_order = ["Header", "Summary", "Experience", "Skills", "Education"]
     
-    # Check if sections appear in reasonable order (simplified check)
-    found_order = [s for s in recommended_order if s in found_sections]
-    ordering_match = len(found_order) / len(found_sections) if found_sections else 0
+    # Get actual order from section sequence (order sections appear in resume)
+    actual_order = sections.get("_section_sequence", [])
+    # Add Header if not in sequence (it's always first)
+    if "Header" not in actual_order:
+        actual_order = ["Header"] + actual_order
+    
+    # Filter to only sections that exist
+    found_order = [s for s in actual_order if s in found_sections]
+    recommended_found = [s for s in recommended_order if s in found_sections]
+    
+    # Calculate ordering match: compare positions of sections
+    if len(found_order) > 1:
+        # Count how many adjacent pairs match the recommended order
+        matches = 0
+        total_pairs = 0
+        for i in range(len(found_order) - 1):
+            current_section = found_order[i]
+            next_section = found_order[i + 1]
+            
+            if current_section in recommended_order and next_section in recommended_order:
+                total_pairs += 1
+                current_idx = recommended_order.index(current_section)
+                next_idx = recommended_order.index(next_section)
+                if next_idx > current_idx:
+                    matches += 1
+        
+        ordering_match = matches / total_pairs if total_pairs > 0 else 0
+    else:
+        ordering_match = 1.0 if found_order else 0
     
     if ordering_match >= 0.8:  # 80% match
         score += 20
@@ -435,7 +469,7 @@ def evaluate_format_score(sections: Dict[str, Any], career_level: str = "experie
     
     details["ordering"] = {
         "recommended_order": recommended_order,
-        "actual_order": found_sections,
+        "actual_order": found_order,
         "match_percentage": ordering_match * 100,
         "score_breakdown": f"{ordering_match * 100:.0f}% match with recommended order ({20 if ordering_ok else 10}/20 points)"
     }
@@ -1071,8 +1105,27 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
         issues.append("No experience items found")
         experience_score = 0
     
-    # Check for dates (part of experience score)
-    dates_found = bool(re.search(r'\d{4}', raw_text))
+    # Check for dates (part of experience score) - only within Experience section
+    experience_text = sections.get("Experience", {}).get("text", "")
+    dates_found = False
+    
+    # Check in Experience section text
+    if experience_text:
+        dates_found = bool(re.search(r'\d{4}', experience_text))
+    
+    # Also check in individual experience items
+    if not dates_found and experience_items:
+        for item in experience_items:
+            # Check in dates field
+            if item.get("dates") and re.search(r'\d{4}', item.get("dates", "")):
+                dates_found = True
+                break
+            # Check in company/role line (sometimes dates are there)
+            company_role = f"{item.get('company', '')} {item.get('role', '')}"
+            if re.search(r'\d{4}', company_role):
+                dates_found = True
+                break
+    
     if dates_found:
         strengths.append("✓ Dates found in experience")
     else:
@@ -1092,6 +1145,13 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
     # Ensure score is capped at 100
     final_score = min(100, max(0, score))
     
+    # Store SDI result for use in overall score calculation
+    sdi_result_final = None
+    try:
+        sdi_result_final = compute_skill_demonstrated_index(sections)
+    except Exception as e:
+        print(f"Error computing SDI for return: {e}")
+    
     return {
         "score": round(final_score, 1),
         "cliches_found": cliches_found,
@@ -1102,6 +1162,7 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
         "impact_verb_without_number": impact_verb_without_number[:5],
         "skills_count": skills_count,
         "experience_items": experience_count,
+        "sdi": sdi_result_final,  # Store SDI as top-level component
         "issues": issues,
         "strengths": strengths,
         "details": details
@@ -1133,7 +1194,7 @@ def analyze_resume(
         "ats": 0.25,
         "job_compatibility": 0.25 if job_description else 0.0,
         "grammar": 0.10,
-        "skills_coverage": 0.15 if not job_description else 0.0,
+        "sdi": 0.15 if not job_description else 0.0,  # Use SDI directly when JD missing
     }
     
     # Redistribute job_compatibility weight if JD missing
@@ -1141,12 +1202,17 @@ def analyze_resume(
         weights["ats"] = 0.35
         weights["format"] = 0.30
     
+    # Get SDI score from ATS evaluation
+    sdi_score_for_overall = 0.0
+    if ats_eval.get("sdi") and ats_eval["sdi"].get("sdi_score"):
+        sdi_score_for_overall = ats_eval["sdi"]["sdi_score"]  # Already 0-100 scale
+    
     overall_score = (
         weights["format"] * format_eval["score"] +
         weights["ats"] * ats_eval["score"] +
         (weights["job_compatibility"] * job_compat_eval["score"] if job_compat_eval else 0) +
         weights["grammar"] * grammar_eval["score"] +
-        weights["skills_coverage"] * (ats_eval["score"] * 0.5)  # Use ATS as proxy
+        weights["sdi"] * sdi_score_for_overall  # Use SDI directly instead of proxy
     )
     
     # Generate top 5 actionable suggestions

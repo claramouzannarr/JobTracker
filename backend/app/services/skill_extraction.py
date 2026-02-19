@@ -83,9 +83,12 @@ def load_skill_vocabulary(csv_path: Optional[str] = None) -> List[str]:
 
 
 def extract_skills_with_matcher(text: str, skill_vocab: List[str]) -> Set[str]:
-    """Extract skills using spaCy PhraseMatcher."""
+    """Extract skills using spaCy PhraseMatcher with optimized lookup."""
     if nlp is None:
         return set()
+    
+    # Prebuild lookup dict for O(1) case recovery (performance improvement)
+    skill_lookup = {skill.lower(): skill for skill in skill_vocab}
     
     matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
     patterns = [nlp.make_doc(skill.lower()) for skill in skill_vocab]
@@ -96,57 +99,83 @@ def extract_skills_with_matcher(text: str, skill_vocab: List[str]) -> Set[str]:
     
     found_skills = set()
     for match in matches:
-        # Get original case from vocabulary
-        matched_text = match.text
-        for skill in skill_vocab:
-            if skill.lower() == matched_text.lower():
-                found_skills.add(skill)
-                break
+        # O(1) lookup instead of O(n) loop
+        matched_lower = match.text.lower()
+        if matched_lower in skill_lookup:
+            found_skills.add(skill_lookup[matched_lower])
     
     return found_skills
 
 
 def find_semantic_skills(text: str, skill_vocab: List[str], threshold: float = 0.6) -> Set[str]:
-    """Find skills using semantic similarity with embeddings - improved to handle lowercase and context."""
+    """Find skills using semantic similarity with embeddings - improved precision with POS filtering."""
     if skill_embedder is None:
         return set()
     
-    # Improved extraction: look for technical terms regardless of case
-    # Extract n-grams (1-3 words) that might be skills
-    words = text.split()
-    potential_skills = []
-    
-    # Extract potential skill phrases (1-3 word n-grams)
-    for i in range(len(words)):
-        # Single word (if it looks technical)
-        word = words[i].strip('.,;:!?()[]{}')
-        if len(word) > 2 and (word[0].isupper() or word.islower()):
-            # Check if it's a known technical term pattern
-            if any(char.isdigit() for char in word) or word.lower() in ['api', 'sdk', 'ide', 'ui', 'ux', 'ci', 'cd']:
+    # Use spaCy for better candidate extraction with POS tagging
+    if nlp is None:
+        # Fallback to simple extraction if spaCy not available
+        words = text.split()
+        potential_skills = []
+        for i in range(len(words)):
+            word = words[i].strip('.,;:!?()[]{}')
+            if len(word) > 2 and word[0].isupper():
                 potential_skills.append(word)
-            elif word[0].isupper() or (word.islower() and len(word) > 4):
-                potential_skills.append(word)
+            if i + 1 < len(words):
+                word2 = words[i + 1].strip('.,;:!?()[]{}')
+                if word[0].isupper() and word2[0].isupper():
+                    potential_skills.append(f"{word} {word2}")
+    else:
+        # Use spaCy for better noun phrase extraction
+        doc = nlp(text)
+        potential_skills = []
         
-        # Two-word phrases
-        if i + 1 < len(words):
-            word2 = words[i + 1].strip('.,;:!?()[]{}')
-            phrase = f"{word} {word2}"
-            # Include if at least one word is capitalized or both are lowercase technical terms
-            if (word[0].isupper() or word2[0].isupper()) or (word.islower() and word2.islower() and len(phrase) > 6):
-                potential_skills.append(phrase)
+        # Extract noun phrases and proper nouns (more likely to be skills)
+        for chunk in doc.noun_chunks:
+            # Filter: must be 1-3 words, not too common
+            if 1 <= len(chunk) <= 3:
+                phrase = chunk.text.strip('.,;:!?()[]{}')
+                if len(phrase) > 2:
+                    potential_skills.append(phrase)
         
-        # Three-word phrases (for skills like "Machine Learning", "Natural Language Processing")
-        if i + 2 < len(words):
-            word2 = words[i + 1].strip('.,;:!?()[]{}')
-            word3 = words[i + 2].strip('.,;:!?()[]{}')
-            phrase = f"{word} {word2} {word3}"
-            if word[0].isupper() and word2[0].isupper():
-                potential_skills.append(phrase)
+        # Also extract capitalized sequences (technical terms)
+        for token in doc:
+            if token.is_upper and len(token.text) > 2:
+                potential_skills.append(token.text)
+            # Check for multi-word capitalized sequences
+            if token.is_title and token.i + 1 < len(doc):
+                next_token = doc[token.i + 1]
+                if next_token.is_title:
+                    potential_skills.append(f"{token.text} {next_token.text}")
     
-    # Remove duplicates and filter out common non-technical words
-    potential_skills = list(set(potential_skills))
-    common_words = {'the', 'and', 'or', 'but', 'with', 'for', 'from', 'this', 'that', 'these', 'those'}
-    potential_skills = [p for p in potential_skills if p.lower() not in common_words and len(p) > 2]
+    # Filter out common stopwords and non-technical patterns
+    common_words = {
+        'the', 'and', 'or', 'but', 'with', 'for', 'from', 'this', 'that', 'these', 'those',
+        'was', 'were', 'been', 'have', 'has', 'had', 'will', 'would', 'should', 'could',
+        'can', 'may', 'might', 'must', 'shall', 'team', 'project', 'work', 'company'
+    }
+    
+    # Filter by character patterns: avoid common verbs and stopwords
+    filtered_skills = []
+    for phrase in potential_skills:
+        phrase_lower = phrase.lower()
+        # Skip if it's a common word
+        if phrase_lower in common_words:
+            continue
+        # Skip if it's too short or too long
+        if len(phrase) < 3 or len(phrase) > 50:
+            continue
+        # Skip if it's mostly lowercase and looks like a verb (ends with -ed, -ing, -s)
+        if phrase_lower.endswith(('ed', 'ing', 's')) and not phrase[0].isupper():
+            continue
+        # Keep if it has technical indicators (numbers, special chars, or is capitalized)
+        if any(c.isdigit() for c in phrase) or phrase[0].isupper() or phrase_lower in ['api', 'sdk', 'ide', 'ui', 'ux', 'ci', 'cd', 'sql', 'nosql']:
+            filtered_skills.append(phrase)
+        # Keep multi-word capitalized phrases
+        elif ' ' in phrase and any(w[0].isupper() for w in phrase.split()):
+            filtered_skills.append(phrase)
+    
+    potential_skills = list(set(filtered_skills))
     
     if not potential_skills:
         return set()
