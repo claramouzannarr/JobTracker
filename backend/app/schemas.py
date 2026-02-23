@@ -124,6 +124,33 @@ class JobRecommendation(BaseModel):
         from_attributes = True
 
 
+# Job recommendation with explainability (recommendation endpoint)
+class JobRecommendationWithReasons(BaseModel):
+    job_id: int
+    title: str
+    company: str
+    location_display: Optional[str] = None
+    url: Optional[str] = None
+    created_at: Optional[str] = None
+    remote_type: Optional[str] = None
+    salary_min: Optional[float] = None
+    salary_max: Optional[float] = None
+    description_text: Optional[str] = None
+    score: float
+    matched_skills: List[str] = []
+    missing_skills: List[str] = []
+    penalties_applied: List[str] = []
+
+
+# Adzuna ingestion request
+class AdzunaIngestRequest(BaseModel):
+    country: str = "gb"
+    what: Optional[str] = None
+    where: Optional[str] = None
+    pages: int = 3
+    results_per_page: int = 50
+
+
 # Interview prep schemas
 class InterviewPrepResponse(BaseModel):
     id: int

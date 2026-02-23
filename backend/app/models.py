@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean, Float
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -70,16 +70,27 @@ class ResumeVersion(Base):
 
 class JobPosting(Base):
     __tablename__ = "job_postings"
+    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_job_posting_source_external_id"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    source = Column(String)  # Greenhouse, Lever, SmartRecruiters, Manual
+    source = Column(String, index=True)  # adzuna, Greenhouse, Lever, etc.
+    external_id = Column(String, index=True)  # ID from external API; unique per source
     title = Column(String, nullable=False)
     company = Column(String, nullable=False)
     description_text = Column(Text)
-    country = Column(String)
-    remote_flag = Column(Boolean, default=False)
     job_url = Column(String)
-    embedding_vector = Column(JSON)  # Store embedding as JSON array
+    country = Column(String)
+    location_display = Column(String)  # Human-readable location string
+    contract_type = Column(String)  # full-time, part-time, etc.
+    salary_min = Column(Float)
+    salary_max = Column(Float)
+    latitude = Column(Float)
+    longitude = Column(Float)
+    remote_flag = Column(Boolean, default=False)
+    remote_type = Column(String)  # "remote", "hybrid", "onsite"
+    description_hash = Column(String)  # For detecting description changes to recompute embedding
+    embedding_vector = Column(JSON)  # 384-dim embedding (all-MiniLM-L6-v2)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
