@@ -191,7 +191,38 @@ class InterviewPrepResponse(BaseModel):
     resources_links: List[str]
     topics_to_review: List[str]
     created_at: datetime
+    generated_json: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
+
+
+class InterviewPrepGenerateRequest(BaseModel):
+    application_id: int
+    days: int = 7
+    focus: List[str] = ["technical", "behavioral"]
+    difficulty: str = "mixed"
+
+
+class InterviewPrepEvaluateRequest(BaseModel):
+    interview_prep_id: int
+    question_id: str
+    answer_text: str
+
+
+class InterviewPrepEvaluateResponse(BaseModel):
+    score: int
+    strengths: List[str]
+    missing_points: List[str]
+    improved_answer: str
+    next_drill: str
+
+
+class InterviewPrepVoiceAnswerResponse(BaseModel):
+    transcript: str
+    score: int
+    strengths: List[str]
+    missing_points: List[str]
+    improved_answer: str
+    next_drill: str
 

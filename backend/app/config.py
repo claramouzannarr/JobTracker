@@ -19,6 +19,13 @@ class Settings(BaseSettings):
     # Optional: protect ingest endpoint (admin token)
     ingest_admin_token: str = os.getenv("INGEST_ADMIN_TOKEN", "")
 
+    # OpenAI (interview prep: generation, evaluation, optional RAG)
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_model_generate: str = os.getenv("OPENAI_MODEL_GENERATE", "gpt-4o-mini")
+    openai_model_eval: str = os.getenv("OPENAI_MODEL_EVAL", "gpt-4o-mini")
+    openai_embed_model: str = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+    openai_vector_store_id: str = os.getenv("OPENAI_VECTOR_STORE_ID", "")  # Optional: managed retrieval
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

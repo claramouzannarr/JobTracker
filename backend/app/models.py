@@ -99,11 +99,28 @@ class InterviewPrep(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     application_id = Column(Integer, ForeignKey("applications.id"), unique=True, nullable=False)
-    questions = Column(JSON)  # List of questions
-    resources_links = Column(JSON)  # List of resource URLs
-    topics_to_review = Column(JSON)  # List of topics/skills
+    questions = Column(JSON)  # Legacy: list of question strings (kept for backward compatibility)
+    resources_links = Column(JSON)  # Legacy
+    topics_to_review = Column(JSON)  # Legacy
+    generated_json = Column(JSON)  # Full prep package: role_context, questions[], skill_gaps, study_plan, answer_rubric
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     application = relationship("Application", back_populates="interview_prep")
+    answers = relationship("InterviewAnswer", back_populates="interview_prep", cascade="all, delete-orphan")
+
+
+class InterviewAnswer(Base):
+    __tablename__ = "interview_answers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    interview_prep_id = Column(Integer, ForeignKey("interview_prep.id"), nullable=False)
+    question_id = Column(String, nullable=False)  # e.g. "q1", "q3"
+    answer_text = Column(Text)  # Typed answer (or transcript from voice)
+    transcript_text = Column(Text, nullable=True)  # Voice transcript if submitted via voice
+    score = Column(Integer)  # 0-5
+    feedback_json = Column(JSON)  # strengths, missing_points, improved_answer, next_drill
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    interview_prep = relationship("InterviewPrep", back_populates="answers")
 

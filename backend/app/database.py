@@ -56,6 +56,41 @@ def migrate_resume_versions_table():
             # Don't raise - columns might already exist
 
 
+def migrate_interview_prep_tables():
+    """Add generated_json to interview_prep and create interview_answers table if needed. PostgreSQL only."""
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        try:
+            # Add generated_json to interview_prep if missing
+            conn.execute(text("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'interview_prep' AND column_name = 'generated_json'
+                    ) THEN
+                        ALTER TABLE interview_prep ADD COLUMN generated_json JSON;
+                    END IF;
+                END $$;
+            """))
+            # Create interview_answers if not exists (SQLAlchemy create_all will add it; this handles existing DBs)
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS interview_answers (
+                    id SERIAL PRIMARY KEY,
+                    interview_prep_id INTEGER NOT NULL REFERENCES interview_prep(id) ON DELETE CASCADE,
+                    question_id VARCHAR(64) NOT NULL,
+                    answer_text TEXT,
+                    transcript_text TEXT,
+                    score INTEGER,
+                    feedback_json JSON,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+            """))
+            print("✅ Database migration: interview_prep.generated_json and interview_answers checked")
+        except Exception as e:
+            print(f"⚠️  Migration interview_prep: {e}")
+
+
 def migrate_job_postings_table():
     """Add Adzuna/recommendation columns to job_postings if they don't exist. PostgreSQL only."""
     if engine.dialect.name != "postgresql":

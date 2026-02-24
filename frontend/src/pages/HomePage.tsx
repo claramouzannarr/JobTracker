@@ -38,6 +38,40 @@ interface JobRecommendation {
   score: number
 }
 
+// Interview prep (generated package)
+interface PrepQuestion {
+  id: string
+  type: string
+  question: string
+  what_good_looks_like?: string[]
+  common_mistakes?: string[]
+  follow_ups?: string[]
+  difficulty?: string
+  evidence_from_docs?: string[]
+}
+interface PrepRoleContext {
+  target_title?: string
+  seniority?: string
+  company?: string | null
+  key_requirements?: string[]
+}
+interface PrepGeneratedJson {
+  role_context?: PrepRoleContext
+  questions?: PrepQuestion[]
+  skill_gaps?: { matched?: string[]; missing?: string[]; priority_to_learn?: string[] }
+  study_plan?: { day: number; focus: string; tasks: string[]; deliverable: string }[]
+  answer_rubric?: { scoring_scale?: string; criteria?: { name: string; description: string }[] }
+}
+interface InterviewPrepRecord {
+  id: number
+  application_id: number
+  questions: string[]
+  resources_links: string[]
+  topics_to_review: string[]
+  generated_json: PrepGeneratedJson | null
+  created_at: string
+}
+
 const STATUS_OPTIONS = ['Preparing', 'Applied', 'Interview Prep', 'Rejected']
 
 export default function HomePage() {
@@ -81,6 +115,22 @@ export default function HomePage() {
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileError, setProfileError] = useState('')
+
+  // Interview prep
+  const [showInterviewPrepModal, setShowInterviewPrepModal] = useState(false)
+  const [interviewPrepAppId, setInterviewPrepAppId] = useState<number | null>(null)
+  const [interviewPrepData, setInterviewPrepData] = useState<InterviewPrepRecord | null>(null)
+  const [interviewPrepLoading, setInterviewPrepLoading] = useState(false)
+  const [interviewPrepError, setInterviewPrepError] = useState('')
+  const [generatingPrep, setGeneratingPrep] = useState(false)
+  const [generateForm, setGenerateForm] = useState({ days: 7, focus: ['technical', 'behavioral'] as string[], difficulty: 'mixed' })
+  const [practiceQuestionId, setPracticeQuestionId] = useState<string | null>(null)
+  const [practiceAnswerText, setPracticeAnswerText] = useState('')
+  const [evaluationResult, setEvaluationResult] = useState<{ score: number; strengths: string[]; missing_points: string[]; improved_answer: string; next_drill: string } | null>(null)
+  const [evaluateLoading, setEvaluateLoading] = useState(false)
+  const [voiceRecording, setVoiceRecording] = useState(false)
+  const [voiceChunks, setVoiceChunks] = useState<Blob[]>([])
+  const [voiceMediaRecorder, setVoiceMediaRecorder] = useState<MediaRecorder | null>(null)
 
   useEffect(() => {
     // Only fetch applications if user is logged in
@@ -363,6 +413,152 @@ export default function HomePage() {
       setReUploading(false)
     }
   }
+
+  const openInterviewPrepModal = async (appId: number) => {
+    setShowInterviewPrepModal(true)
+    setInterviewPrepAppId(appId)
+    setInterviewPrepData(null)
+    setInterviewPrepError('')
+    setEvaluationResult(null)
+    setPracticeQuestionId(null)
+    setPracticeAnswerText('')
+    setInterviewPrepLoading(true)
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      const res = await axios.get(`/interview-prep/${appId}`)
+      setInterviewPrepData(res.data)
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        setInterviewPrepData(null)
+        setInterviewPrepError('')
+      } else {
+        setInterviewPrepError(err.response?.data?.detail || 'Failed to load interview prep')
+      }
+    } finally {
+      setInterviewPrepLoading(false)
+    }
+  }
+
+  const fetchInterviewPrepAfterGenerate = async () => {
+    if (interviewPrepAppId == null) return
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      const res = await axios.get(`/interview-prep/${interviewPrepAppId}`)
+      setInterviewPrepData(res.data)
+    } catch (_) {}
+  }
+
+  const handleGeneratePrep = async () => {
+    if (interviewPrepAppId == null) return
+    setGeneratingPrep(true)
+    setInterviewPrepError('')
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      await axios.post('/interview-prep/generate', {
+        application_id: interviewPrepAppId,
+        days: generateForm.days,
+        focus: generateForm.focus,
+        difficulty: generateForm.difficulty,
+      }, { timeout: 60000 })
+      await fetchInterviewPrepAfterGenerate()
+    } catch (err: any) {
+      setInterviewPrepError(err.response?.data?.detail || 'Failed to generate prep')
+    } finally {
+      setGeneratingPrep(false)
+    }
+  }
+
+  const handleEvaluateAnswer = async () => {
+    if (!interviewPrepData?.id || !practiceQuestionId?.trim() || !practiceAnswerText.trim()) return
+    setEvaluateLoading(true)
+    setEvaluationResult(null)
+    setInterviewPrepError('')
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      const res = await axios.post('/interview-prep/evaluate', {
+        interview_prep_id: interviewPrepData.id,
+        question_id: practiceQuestionId,
+        answer_text: practiceAnswerText,
+      })
+      setEvaluationResult(res.data)
+    } catch (err: any) {
+      setInterviewPrepError(err.response?.data?.detail || 'Evaluation failed')
+    } finally {
+      setEvaluateLoading(false)
+    }
+  }
+
+  const startVoiceRecording = () => {
+    setVoiceChunks([])
+    setInterviewPrepError('')
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+      const recorder = new MediaRecorder(stream)
+      const chunks: Blob[] = []
+      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data) }
+      recorder.onstop = () => {
+        setVoiceChunks(chunks)
+        stream.getTracks().forEach((t) => t.stop())
+      }
+      recorder.start()
+      setVoiceMediaRecorder(recorder)
+      setVoiceRecording(true)
+    }).catch(() => setInterviewPrepError('Microphone access denied'))
+  }
+
+  const stopVoiceRecordingAndSubmit = async () => {
+    if (!voiceMediaRecorder) return
+    voiceMediaRecorder.stop()
+    setVoiceMediaRecorder(null)
+    setVoiceRecording(false)
+    // Wait a tick for ondataavailable
+    await new Promise((r) => setTimeout(r, 300))
+  }
+
+  useEffect(() => {
+    if (voiceChunks.length === 0) return
+    const submitVoice = async () => {
+      const blob = new Blob(voiceChunks, { type: 'audio/webm' })
+      const file = new File([blob], 'audio.webm', { type: 'audio/webm' })
+      if (!interviewPrepData?.id || !practiceQuestionId) return
+      setEvaluateLoading(true)
+      setEvaluationResult(null)
+      setInterviewPrepError('')
+      try {
+        const token = localStorage.getItem('token')
+        if (!token) return
+        const form = new FormData()
+        form.append('audio_file', file)
+        form.append('interview_prep_id', String(interviewPrepData.id))
+        form.append('question_id', practiceQuestionId)
+        const res = await axios.post('/interview-prep/voice-answer', form, {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 60000,
+        })
+        setEvaluationResult({
+          score: res.data.score,
+          strengths: res.data.strengths || [],
+          missing_points: res.data.missing_points || [],
+          improved_answer: res.data.improved_answer || '',
+          next_drill: res.data.next_drill || '',
+        })
+        setPracticeAnswerText(res.data.transcript || '')
+      } catch (err: any) {
+        setInterviewPrepError(err.response?.data?.detail || 'Voice evaluation failed')
+      } finally {
+        setEvaluateLoading(false)
+        setVoiceChunks([])
+      }
+    }
+    submitVoice()
+  }, [voiceChunks])
 
   useEffect(() => {
     if (showProfileModal && user) {
@@ -652,6 +848,15 @@ export default function HomePage() {
                           >
                             View
                           </button>
+                          {app.status === 'Interview Prep' && (
+                            <button
+                              type="button"
+                              onClick={() => openInterviewPrepModal(app.id)}
+                              className="text-purple-600 hover:text-purple-900 font-medium"
+                            >
+                              Prepare
+                            </button>
+                          )}
                           {app.job_url && (
                             <a
                               href={app.job_url}
@@ -964,6 +1169,279 @@ export default function HomePage() {
                     </button>
                   </div>
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interview Prep Modal */}
+      {showInterviewPrepModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
+              <h3 className="text-xl font-semibold text-gray-900">
+                Interview Prep
+                {interviewPrepAppId != null && applications.find((a) => a.id === interviewPrepAppId) && (
+                  <span className="text-gray-500 font-normal ml-2">
+                    – {applications.find((a) => a.id === interviewPrepAppId)?.company_name} · {applications.find((a) => a.id === interviewPrepAppId)?.job_title}
+                  </span>
+                )}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowInterviewPrepModal(false)
+                  setInterviewPrepAppId(null)
+                  setInterviewPrepData(null)
+                  setPracticeQuestionId(null)
+                  setEvaluationResult(null)
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              {interviewPrepError && (
+                <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-800">{interviewPrepError}</div>
+              )}
+              {interviewPrepLoading ? (
+                <div className="py-12 text-center text-gray-600">Loading interview prep...</div>
+              ) : !interviewPrepData ? (
+                <div className="space-y-4">
+                  <p className="text-gray-700">No prep yet. Generate tailored interview preparation using your resume and this job description.</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Preparation days</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={14}
+                        value={generateForm.days}
+                        onChange={(e) => setGenerateForm((f) => ({ ...f, days: Number(e.target.value) || 7 }))}
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Difficulty</label>
+                      <select
+                        value={generateForm.difficulty}
+                        onChange={(e) => setGenerateForm((f) => ({ ...f, difficulty: e.target.value }))}
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="easy">Easy</option>
+                        <option value="mixed">Mixed</option>
+                        <option value="hard">Hard</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Focus areas</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['technical', 'behavioral', 'case', 'resume'].map((f) => (
+                        <label key={f} className="inline-flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={generateForm.focus.includes(f)}
+                            onChange={(e) => {
+                              setGenerateForm((prev) => ({
+                                ...prev,
+                                focus: e.target.checked ? [...prev.focus, f] : prev.focus.filter((x) => x !== f),
+                              }))
+                            }}
+                            className="rounded border-gray-300 text-indigo-600"
+                          />
+                          <span className="ml-1 text-sm text-gray-700 capitalize">{f}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={generatingPrep}
+                    onClick={handleGeneratePrep}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {generatingPrep ? 'Generating...' : 'Generate prep'}
+                  </button>
+                </div>
+              ) : !interviewPrepData.generated_json ? (
+                <div className="space-y-4">
+                  <p className="text-gray-700">Generate tailored interview preparation.</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Preparation days</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={14}
+                        value={generateForm.days}
+                        onChange={(e) => setGenerateForm((f) => ({ ...f, days: Number(e.target.value) || 7 }))}
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Difficulty</label>
+                      <select
+                        value={generateForm.difficulty}
+                        onChange={(e) => setGenerateForm((f) => ({ ...f, difficulty: e.target.value }))}
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-md"
+                      >
+                        <option value="easy">Easy</option>
+                        <option value="mixed">Mixed</option>
+                        <option value="hard">Hard</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Focus areas</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['technical', 'behavioral', 'case', 'resume'].map((f) => (
+                        <label key={f} className="inline-flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={generateForm.focus.includes(f)}
+                            onChange={(e) => {
+                              setGenerateForm((prev) => ({
+                                ...prev,
+                                focus: e.target.checked ? [...prev.focus, f] : prev.focus.filter((x) => x !== f),
+                              }))
+                            }}
+                            className="rounded border-gray-300 text-indigo-600"
+                          />
+                          <span className="ml-1 text-sm text-gray-700 capitalize">{f}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={generatingPrep}
+                    onClick={handleGeneratePrep}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {generatingPrep ? 'Generating...' : 'Generate prep'}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {interviewPrepData.generated_json.role_context && (
+                    <div className="border rounded-lg p-4 bg-gray-50">
+                      <h4 className="font-semibold text-gray-900 mb-2">Role context</h4>
+                      <p className="text-sm text-gray-700">
+                        {interviewPrepData.generated_json.role_context.target_title} · {interviewPrepData.generated_json.role_context.seniority}
+                        {interviewPrepData.generated_json.role_context.company && ` · ${interviewPrepData.generated_json.role_context.company}`}
+                      </p>
+                      {interviewPrepData.generated_json.role_context.key_requirements?.length ? (
+                        <ul className="mt-1 list-disc list-inside text-sm text-gray-600">
+                          {interviewPrepData.generated_json.role_context.key_requirements.slice(0, 5).map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  )}
+                  {interviewPrepData.generated_json.study_plan && interviewPrepData.generated_json.study_plan.length > 0 && (
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-2">Study plan</h4>
+                      <ul className="space-y-2 text-sm text-gray-700">
+                        {interviewPrepData.generated_json.study_plan.map((day) => (
+                          <li key={day.day}>
+                            <span className="font-medium">Day {day.day}:</span> {day.focus} – {day.deliverable}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {interviewPrepData.generated_json.skill_gaps && (
+                    <div className="border rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-2">Skill gaps</h4>
+                      <p className="text-sm text-gray-600">
+                        Matched: {interviewPrepData.generated_json.skill_gaps.matched?.join(', ') || '—'} · Missing: {interviewPrepData.generated_json.skill_gaps.missing?.join(', ') || '—'}
+                      </p>
+                    </div>
+                  )}
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-3">Practice questions</h4>
+                    <div className="space-y-4">
+                      {(interviewPrepData.generated_json.questions || []).map((q) => (
+                        <div key={q.id} className="border rounded-lg p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="text-xs text-gray-500 uppercase">{q.type}</span>
+                              <p className="font-medium text-gray-900 mt-0.5">{q.question}</p>
+                              {q.what_good_looks_like && q.what_good_looks_like.length > 0 && (
+                                <ul className="mt-1 text-sm text-gray-600 list-disc list-inside">
+                                  {q.what_good_looks_like.slice(0, 3).map((b, i) => (
+                                    <li key={i}>{b}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPracticeQuestionId(q.id)
+                                setPracticeAnswerText('')
+                                setEvaluationResult(null)
+                              }}
+                              className={`text-sm px-2 py-1 rounded ${practiceQuestionId === q.id ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                            >
+                              Practice
+                            </button>
+                          </div>
+                          {practiceQuestionId === q.id && (
+                            <div className="mt-4 pt-4 border-t">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Your answer (type or record)</label>
+                              <textarea
+                                value={practiceAnswerText}
+                                onChange={(e) => setPracticeAnswerText(e.target.value)}
+                                placeholder="Type your answer here..."
+                                rows={4}
+                                className="block w-full px-3 py-2 border border-gray-300 rounded-md"
+                              />
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={evaluateLoading || !practiceAnswerText.trim()}
+                                  onClick={handleEvaluateAnswer}
+                                  className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                                >
+                                  {evaluateLoading ? 'Evaluating...' : 'Get feedback'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={voiceRecording ? stopVoiceRecordingAndSubmit : startVoiceRecording}
+                                  className={`px-3 py-1.5 text-sm rounded-md ${voiceRecording ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'}`}
+                                >
+                                  {voiceRecording ? 'Stop & submit' : 'Record answer'}
+                                </button>
+                              </div>
+                              {evaluationResult && (
+                                <div className="mt-4 p-4 bg-gray-50 rounded-lg space-y-2">
+                                  <p className="font-medium text-gray-900">Score: {evaluationResult.score}/5</p>
+                                  {evaluationResult.strengths?.length > 0 && (
+                                    <p className="text-sm text-green-700"><span className="font-medium">Strengths:</span> {evaluationResult.strengths.join(' ')}</p>
+                                  )}
+                                  {evaluationResult.missing_points?.length > 0 && (
+                                    <p className="text-sm text-amber-700"><span className="font-medium">To improve:</span> {evaluationResult.missing_points.join(' ')}</p>
+                                  )}
+                                  {evaluationResult.improved_answer && (
+                                    <p className="text-sm text-gray-700"><span className="font-medium">Improved answer:</span> {evaluationResult.improved_answer}</p>
+                                  )}
+                                  {evaluationResult.next_drill && (
+                                    <p className="text-sm text-gray-600"><span className="font-medium">Next drill:</span> {evaluationResult.next_drill}</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </div>
