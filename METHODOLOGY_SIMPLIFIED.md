@@ -261,53 +261,41 @@ The system adjusts similarity scores based on questionnaire preferences:
 
 ### 4.1 Overview
 
-The Interview Preparation feature generates personalized interview questions and study materials based on the specific job application and user's background.
+The Interview Preparation feature uses **OpenAI** and **context from the user’s resume and job description** to generate tailored prep and to evaluate practice answers. It behaves like a professional recruiter and career coach: supportive, direct, and grounded only in the provided documents.
 
 ### 4.2 How It Works
 
-**Step 1: Gathering Context**
-- Extracts job title and role from the application
-- Determines user's seniority level from years of experience
-- Extracts key skills from job description (if provided)
+**Step 1: Generate Prep (RAG-style context)**
+- The system loads the **latest resume text** for the application and the **job description** from the database.
+- User chooses preparation **days**, **focus** (technical, behavioral, case, resume), and **difficulty**.
+- **Seniority** is inferred from years of experience (&lt;2 = entry, 2–4 = mid, ≥5 = senior).
+- Resume and job description are truncated (e.g. 4,000 characters each) to control cost and token usage.
+- **OpenAI** (e.g. gpt-4o-mini) is called with this context and returns a **structured prep package** (JSON).
 
-**Step 2: Question Generation**
-- Selects relevant questions from a curated database organized by:
-  - **Role type**: Software Engineer, Data Scientist, etc.
-  - **Question category**: Technical questions vs. Behavioral questions
-  - **Seniority level**: Entry-level, mid-level, or senior questions
+**Step 2: Prep Package Contents**
+- **Role context**: Target title, seniority, company, key requirements.
+- **Questions**: Technical, behavioral, resume-specific (and optionally case), each with what good looks like, common mistakes, follow-ups, difficulty, and short evidence pointers from the documents.
+- **Skill gaps**: Matched skills, missing skills, and priorities to learn.
+- **Study plan**: Day-by-day focus, tasks, and deliverable for the chosen number of days.
+- **Answer rubric**: Scoring scale (0–5) and criteria (e.g. structure, relevance, evidence, clarity, impact).
 
-**Question Types:**
-- **Technical Questions**: Role-specific technical knowledge and problem-solving
-  - Examples: "Explain the difference between SQL and NoSQL databases"
-  - Examples: "What is the time complexity of binary search?"
-- **Behavioral Questions**: Past experiences and soft skills
-  - Examples: "Tell me about a challenging project you worked on"
-  - Examples: "How do you handle disagreements with team members?"
-
-**Step 3: Topic Extraction**
-- Identifies top 10 skills from the job description
-- These become "Topics to Review" for the user
-- Helps users focus their preparation on what's most relevant
-
-**Step 4: Resource Links**
-- Provides links to helpful resources:
-  - Coding practice platforms (e.g., LeetCode)
-  - Interview preparation websites
-  - Industry-specific resources
+**Step 3: Practice and Evaluation**
+- User can **type** an answer or **record** a voice answer for any question.
+- **Typed answers**: Sent to the evaluate endpoint; OpenAI scores using the rubric and returns strengths, missing points, an improved answer, and a next drill.
+- **Voice answers**: Audio is transcribed with **Whisper**, then the transcript is evaluated the same way as a typed answer.
+- Scores and feedback are stored per question (**InterviewAnswer** table) and shown in the UI.
 
 ### 4.3 Techniques Used
 
-- **Template-Based Generation**: Curated question database organized by role and seniority
-- **Skill Extraction**: NLP techniques to identify important skills from job descriptions
-- **Rule-Based Selection**: Questions selected based on role match and experience level
+- **Context-grounded generation**: Resume and job description text are the only sources; the model is instructed not to invent company-specific facts and to say when information is missing.
+- **OpenAI API**: Chat Completions with JSON output for generation and evaluation; Whisper for speech-to-text.
+- **Structured output**: Strict JSON schema for the prep package and for evaluation feedback to keep responses consistent and parseable.
+- **Cost control**: Token limits (e.g. max_tokens), truncation of resume/JD, and use of gpt-4o-mini by default.
 
-### 4.4 Future Enhancement: RAG System
+### 4.4 Configuration
 
-The system is designed to support a **Retrieval-Augmented Generation (RAG)** enhancement in the future. This would:
-- Use a knowledge base of interview questions, answers, and best practices
-- Retrieve relevant information based on the specific job and user profile
-- Generate more personalized and context-aware interview preparation materials
-- Provide example answers and detailed explanations
+- **Backend**: OpenAI is configured via **backend/.env** (not the project root). Required: `OPENAI_API_KEY`. Optional: `OPENAI_MODEL_GENERATE`, `OPENAI_MODEL_EVAL`, `OPENAI_EMBED_MODEL` (defaults: gpt-4o-mini, text-embedding-3-small).
+- **Security**: `.env` is gitignored; the API key is never committed.
 
 ---
 
@@ -321,7 +309,7 @@ The four main components are integrated to provide a seamless user experience:
 2. **User adds job application** → Resume uploaded and analyzed
 3. **Resume Analyzer evaluates** → Scores and feedback displayed
 4. **User views recommendations** → System suggests matching jobs using questionnaire data and resume
-5. **User prepares for interview** → System generates role-specific questions
+5. **User prepares for interview** → System generates tailored prep from resume + JD, then user practices with typed or voice answers and receives scored feedback
 
 ### 5.2 Data Flow
 
@@ -338,7 +326,7 @@ Results Displayed to User
     ↓
 [Optional] View Job Recommendations → Uses Profile + Resume
     ↓
-[Optional] Generate Interview Prep → Uses Application Details
+[Optional] Generate Interview Prep → Uses resume + job description; user practices and gets evaluated feedback
 ```
 
 ---
@@ -364,6 +352,11 @@ Results Displayed to User
 - **FastAPI**: Backend API framework
 - **React + TypeScript**: Frontend user interface
 - **PostgreSQL**: Database for storing user data and applications
+
+### 6.5 Interview Prep (OpenAI)
+- **OpenAI API**: Chat Completions for prep generation and answer evaluation; Whisper for voice transcription
+- **Structured JSON**: Prep package (role_context, questions, skill_gaps, study_plan, answer_rubric) and evaluation feedback (score, strengths, missing_points, improved_answer, next_drill)
+- **Context only**: Resume and job description text from the database; no internal tools or RAG systems exposed to the user
 
 ---
 

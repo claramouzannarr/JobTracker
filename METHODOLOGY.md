@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This document presents a comprehensive methodology for an intelligent job application tracking system that leverages Natural Language Processing (NLP), Machine Learning (ML), and Retrieval-Augmented Generation (RAG) technologies to assist job seekers in optimizing their resumes and preparing for interviews. The system integrates multiple technical components including document parsing, semantic analysis, skill extraction, and automated evaluation pipelines to provide actionable feedback on resume quality and job compatibility. This methodology document provides exhaustive technical details, step-by-step algorithms, data flow explanations, and implementation specifics to enable complete understanding of the system architecture and functionality without requiring access to source code.
+This document presents a comprehensive methodology for an intelligent job application tracking system that leverages Natural Language Processing (NLP), Machine Learning (ML), and OpenAI (context-grounded generation and evaluation) to assist job seekers in optimizing their resumes and preparing for interviews. The system integrates multiple technical components including document parsing, semantic analysis, skill extraction, and automated evaluation pipelines to provide actionable feedback on resume quality and job compatibility. This methodology document provides exhaustive technical details, step-by-step algorithms, data flow explanations, and implementation specifics to enable complete understanding of the system architecture and functionality without requiring access to source code.
 
 ---
 
@@ -45,7 +45,7 @@ The system aims to:
 
 3. **Generate Personalized Recommendations**: Use semantic embeddings to match users with relevant job postings based on their profile, preferences, and resume content.
 
-4. **Facilitate Interview Preparation**: Generate role-specific, personalized interview questions and preparation materials using RAG (Retrieval-Augmented Generation) technology.
+4. **Facilitate Interview Preparation**: Generate role-specific, personalized interview questions and preparation materials using OpenAI with context from the user’s resume and job description; support practice with typed or voice answers and rubric-based evaluation.
 
 5. **Track Application Progress**: Provide a centralized platform for managing job applications, resume versions, and interview preparation materials.
 
@@ -138,6 +138,7 @@ The backend serves as the application logic and API layer, handling all business
      - `skill_extraction.py`: Skill identification and matching
      - `resume_analyzer.py`: Comprehensive evaluation pipeline
      - `resume_evaluation.py`: Legacy evaluation functions
+     - `interview_prep_service.py`: Interview prep generation (OpenAI + resume/JD context), answer evaluation, and voice transcription (Whisper)
    - Stateless functions for testability
    - Error handling and logging
 
@@ -201,10 +202,9 @@ This layer handles data persistence and all machine learning operations:
 - **NumPy**: Vector operations and mathematical computations
 - **Pandas**: Data manipulation for skill vocabulary management
 
-**RAG System (Planned Enhancement):**
-- Vector database (ChromaDB or Pinecone) for knowledge base storage
-- LLM integration (GPT-4 or open-source alternative) for content generation
-- Retrieval pipeline for context-aware question generation
+**Interview Prep (Implemented):**
+- OpenAI Chat Completions for prep generation and answer evaluation; Whisper for voice
+- Context from resume and job description (no separate vector DB); structured JSON output and rubric-based feedback
 
 **Complete System Data Flow:**
 ```
@@ -290,7 +290,7 @@ This section provides detailed justification for each technology choice, explain
   - Resume-job description similarity computation
   - User profile embedding for job recommendations
   - Semantic skill matching (finding skills with similar meanings)
-  - Future: RAG system query and document embeddings
+  - Interview prep uses OpenAI with resume/JD context (no separate embedding retrieval for prep)
 
 **scikit-learn 1.3.2**
 - **Why scikit-learn**: Comprehensive ML library with efficient implementations
@@ -466,11 +466,9 @@ The sign-in questionnaire is **primarily designed for the job recommendation sys
 - **Format**: Python list, can be extended via CSV import
 - **Maintenance**: Regular updates to include emerging technologies
 
-**Interview Question Templates:**
-- **Structure**: Role-based question sets (software_engineer, data_scientist, default)
-- **Categories**: Technical questions, behavioral questions
-- **Current Implementation**: Static templates in code
-- **Future Enhancement**: Dynamic generation via RAG system
+**Interview Preparation:**
+- **Primary**: OpenAI-generated prep from resume + job description context (see Section 6); structured package (role_context, questions, skill_gaps, study_plan, answer_rubric); practice with typed or voice answers and rubric-based evaluation.
+- **Legacy/fallback**: When application status is set to "Interview Prep", a minimal prep row can be created with role-based question templates (software_engineer, data_scientist, default) and topics from skill extraction until the user runs full "Generate prep".
 
 ### 2.2 Document Extraction Pipeline
 
@@ -941,48 +939,35 @@ The database schema is designed using SQLAlchemy ORM models, providing a clear s
 
 #### 2.4.5 InterviewPrep Model (interview_prep table)
 
-**Purpose**: Stores interview preparation materials generated for specific applications.
+**Purpose**: Stores interview preparation materials generated for specific applications. Supports both legacy list-based questions and the full OpenAI-generated prep package.
 
 **Schema Details:**
 - **id** (Integer, Primary Key): Unique identifier
 - **application_id** (Integer, Foreign Key → applications.id, Unique, Not Null): One prep per application
-- **questions** (JSON, Nullable): List of interview questions
-  - Format: `["Question 1?", "Question 2?", ...]`
-  - Can be categorized: `{"technical": [...], "behavioral": [...]}`
-- **resources_links** (JSON, Nullable): List of helpful resource URLs
-  - Format: `["https://leetcode.com/", "https://glassdoor.com/..."]`
-- **topics_to_review** (JSON, Nullable): List of topics/skills to review
-  - Format: `["Python", "System Design", "Algorithms"]`
+- **questions** (JSON, Nullable): Legacy list of question strings (retained for backward compatibility)
+- **resources_links** (JSON, Nullable): Legacy list of resource URLs
+- **topics_to_review** (JSON, Nullable): Legacy list of topics/skills
+- **generated_json** (JSON, Nullable): Full prep package from OpenAI: role_context, questions (with id, type, what_good_looks_like, etc.), skill_gaps, study_plan, answer_rubric
 - **created_at** (DateTime, Timezone-aware): When prep was generated
 - **updated_at** (DateTime, Timezone-aware): When prep was last updated
 
 **Relationships:**
 - One-to-One with Application: Each application has one interview prep (optional)
+- One-to-Many with InterviewAnswer: One prep has many practice answers
 
-**Future Enhancement Fields (for RAG system):**
-- **rag_generated_content** (JSON): RAG-generated personalized content
-- **retrieval_metadata** (JSON): Sources and chunks used in RAG retrieval
-- **generation_timestamp** (DateTime): When RAG generation occurred
+#### 2.4.5b InterviewAnswer Model (interview_answers table)
 
-**Example Record:**
-```json
-{
-  "id": 3,
-  "application_id": 5,
-  "questions": [
-    "Explain the difference between a stack and a queue.",
-    "Tell me about a challenging project you worked on.",
-    "How do you handle disagreements with team members?"
-  ],
-  "resources_links": [
-    "https://leetcode.com/",
-    "https://www.glassdoor.com/Interview/index.htm"
-  ],
-  "topics_to_review": ["Python", "React", "System Design", "Algorithms"],
-  "created_at": "2024-02-18T10:00:00Z",
-  "updated_at": "2024-02-18T10:00:00Z"
-}
-```
+**Purpose**: Stores per-question practice attempts (typed or voice) and evaluation feedback.
+
+**Schema Details:**
+- **id** (Integer, Primary Key): Unique identifier
+- **interview_prep_id** (Integer, Foreign Key → interview_prep.id, Not Null)
+- **question_id** (String, Not Null): e.g. "q1", "q3" from generated_json.questions[].id
+- **answer_text** (Text, Nullable): Typed answer or transcript from voice
+- **transcript_text** (Text, Nullable): Voice transcript if submitted via voice-answer endpoint
+- **score** (Integer, Nullable): 0–5 from rubric
+- **feedback_json** (JSON, Nullable): strengths, missing_points, improved_answer, next_drill
+- **created_at** (DateTime, Timezone-aware)
 
 #### 2.4.6 Database Relationships Diagram
 
@@ -991,7 +976,7 @@ User (1) ────────< (Many) Application
                           │
                           ├───< (Many) ResumeVersion
                           │
-                          └───< (1) InterviewPrep
+                          └───< (1) InterviewPrep ────< (Many) InterviewAnswer
 
 JobPosting (standalone table for recommendations)
 ```
@@ -1000,6 +985,7 @@ JobPosting (standalone table for recommendations)
 - **User → Applications**: One user can create many applications (cascade delete)
 - **Application → ResumeVersions**: One application can have multiple resume versions (version history)
 - **Application → InterviewPrep**: One application has one interview prep (optional, one-to-one)
+- **InterviewPrep → InterviewAnswer**: One prep has many practice answers (cascade delete)
 - **JobPosting**: Standalone table, no foreign key relationships
 
 #### 2.4.7 Database Indexes and Performance
@@ -2568,177 +2554,49 @@ The system generates specific, actionable suggestions:
 
 ---
 
-## 6. Retrieval-Augmented Generation (RAG) System for Interview Preparation
+## 6. Interview Preparation: OpenAI and Context-Grounded Generation
 
-### 6.1 Current Interview Prep Implementation
+### 6.1 Implemented Interview Prep System
 
-The existing system (`interview_prep.py`) provides basic interview preparation:
+The system uses **OpenAI** (Chat Completions and Whisper) with **context from the user’s resume and the job description** only. No separate vector database is used for prep; resume and JD text are loaded from the database, truncated for cost control, and passed in the prompt. The assistant behaves as a recruiter and career coach: grounded in provided context, no invented company facts, no mention of internal tools or RAG to the user.
 
-**Question Generation:**
-- Role-based question templates (software_engineer, data_scientist, default)
-- Technical and behavioral question categories
-- Seniority-based question selection
+**Service Layer:** `services/interview_prep_service.py` — generation, evaluation, and voice transcription. **Router:** `routers/interview_prep.py`.
 
-**Topic Extraction:**
-- Skills extraction from job descriptions
-- Top 10 skills for review
-- Resource link aggregation
+### 6.2 Data Sources and Context
 
-### 6.2 Proposed RAG Enhancement Architecture
+**Retrieved at generation time:**
+- **Resume text**: Latest `ResumeVersion.extracted_text` for the application (or “No resume text provided” if missing).
+- **Job description**: `Application.job_description_text`.
+- **User**: `years_experience` (for seniority: &lt;2 entry, 2–4 mid, ≥5 senior), preferences (role, industry, location, remote).
 
-**6.2.1 Knowledge Base Construction**
+**Cost control:** Resume and JD are truncated to 4,000 characters each. Generation uses `max_tokens=3500`; evaluation uses `max_tokens=512`. Default model: `gpt-4o-mini`.
 
-**Data Sources:**
-1. **Interview Question Database:**
-   - Curated questions by role, seniority, and company
-   - Historical interview data (anonymized)
-   - Industry-specific question patterns
+### 6.3 Generation Pipeline
 
-2. **Technical Documentation:**
-   - Technology-specific guides (frameworks, languages, tools)
-   - Best practices and common pitfalls
-   - Code examples and explanations
+**Request:** `POST /api/interview-prep/generate` with body: `application_id`, `days` (e.g. 7), `focus` (e.g. ["technical","behavioral"]), `difficulty` ("easy"|"mixed"|"hard").
 
-3. **Behavioral Interview Resources:**
-   - STAR method examples
-   - Common behavioral question patterns
-   - Industry-specific scenarios
+**Steps:**
+1. Load application, user, and latest resume text; infer seniority.
+2. Build user prompt with truncated resume and JD, schema instructions, and rules (e.g. do not fabricate company facts; if information is missing, state that and give general advice).
+3. Call OpenAI Chat Completions with `response_format={"type": "json_object"}` and a fixed system prompt (recruiter/career coach, output only valid JSON).
+4. Parse JSON, ensure required keys (role_context, questions, skill_gaps, study_plan, answer_rubric), then persist to `InterviewPrep.generated_json` (create or update row).
 
-**Vector Database:**
-- Technology: ChromaDB or Pinecone
-- Embedding model: `all-MiniLM-L6-v2` (consistent with existing system)
-- Chunking strategy: 512-token chunks with 50-token overlap
-- Metadata: role, seniority, topic, question_type
+**Output schema (summary):** role_context (target_title, seniority, company, key_requirements), questions (id, type, question, what_good_looks_like, common_mistakes, follow_ups, difficulty, evidence_from_docs), skill_gaps (matched, missing, priority_to_learn), study_plan (day, focus, tasks, deliverable), answer_rubric (scoring_scale, criteria).
 
-**6.2.2 Retrieval Pipeline**
+### 6.4 Answer Evaluation and Voice
 
-**Query Construction:**
-```python
-def construct_rag_query(application: Application, user: User, resume_text: str):
-    # 1. Extract job requirements
-    job_skills = extract_skills_from_job_description(application.job_description_text)
-    job_title = application.job_title
-    
-    # 2. Extract user profile
-    user_skills = extract_skills(resume_text)
-    years_exp = user.years_experience
-    
-    # 3. Construct multi-part query
-    query = f"""
-    Role: {job_title}
-    Required Skills: {', '.join(job_skills)}
-    User Skills: {', '.join(user_skills)}
-    Experience Level: {years_exp} years
-    Generate interview questions and preparation materials.
-    """
-    return query
-```
+**Typed answer:** `POST /api/interview-prep/evaluate` with `interview_prep_id`, `question_id`, `answer_text`. Service loads prep, finds the question and rubric, calls OpenAI for JSON: score (0–5), strengths, missing_points, improved_answer, next_drill. Persists to `InterviewAnswer`.
 
-**Retrieval Strategy:**
-- Hybrid search: Semantic similarity + keyword matching
-- Top-K retrieval: K=5-10 relevant chunks
-- Re-ranking: Cross-encoder model for precision
-- Diversity: Ensure coverage across question types
+**Voice answer:** `POST /api/interview-prep/voice-answer` (multipart: audio_file, interview_prep_id, question_id). Audio is transcribed with OpenAI Whisper; the transcript is then evaluated as above and stored with `transcript_text` set.
 
-**6.2.3 Generation Pipeline**
+### 6.5 Configuration and Security
 
-**LLM Integration:**
-- Model: OpenAI GPT-4 or open-source alternative (Llama 3, Mistral)
-- Prompt engineering for structured output
-- Few-shot learning with examples
+- **Environment:** All OpenAI settings are read from **backend/.env** (backend loads only this file). Required: `OPENAI_API_KEY`. Optional: `OPENAI_MODEL_GENERATE`, `OPENAI_MODEL_EVAL`, `OPENAI_EMBED_MODEL`.
+- **Security:** `.env` is gitignored; API keys are never logged or exposed. User-facing errors for billing/rate-limit are sanitized (e.g. “OpenAI billing is not active…”).
 
-**Prompt Template:**
-```
-You are an expert interview coach. Based on the following context about the job role and candidate profile, generate personalized interview preparation materials.
+### 6.6 Benefits of Current Design
 
-Job Role: {job_title}
-Required Skills: {required_skills}
-Candidate Skills: {candidate_skills}
-Experience Level: {years_experience}
-
-Context from Knowledge Base:
-{retrieved_chunks}
-
-Generate:
-1. 5-7 technical questions specific to this role
-2. 3-5 behavioral questions
-3. Key topics to review with explanations
-4. Common pitfalls to avoid
-5. Recommended practice resources
-
-Format the output as structured JSON.
-```
-
-**6.2.4 Response Synthesis**
-
-**Output Structure:**
-```json
-{
-  "technical_questions": [
-    {
-      "question": "...",
-      "difficulty": "medium",
-      "topic": "...",
-      "hint": "...",
-      "expected_answer_points": [...]
-    }
-  ],
-  "behavioral_questions": [...],
-  "topics_to_review": [
-    {
-      "topic": "...",
-      "explanation": "...",
-      "resources": [...]
-    }
-  ],
-  "personalized_tips": [...]
-}
-```
-
-**6.2.5 Implementation Architecture**
-
-**Component Integration:**
-```
-User Request → Interview Prep Router
-    ↓
-Extract Application Context
-    ↓
-RAG Query Construction
-    ↓
-Vector Database Retrieval (ChromaDB/Pinecone)
-    ↓
-LLM Generation (GPT-4/Llama)
-    ↓
-Response Formatting & Storage
-    ↓
-Return to User
-```
-
-**Database Schema Extension:**
-```python
-class InterviewPrep(Base):
-    # Existing fields...
-    rag_generated_content = Column(JSON)  # Store RAG-generated materials
-    retrieval_metadata = Column(JSON)     # Store retrieval sources
-    generation_timestamp = Column(DateTime)
-```
-
-### 6.3 RAG System Benefits
-
-**Personalization:**
-- Role-specific question generation
-- Skill-gap aware preparation
-- Experience-level appropriate difficulty
-
-**Comprehensiveness:**
-- Access to extensive knowledge base
-- Up-to-date industry practices
-- Multi-perspective answers
-
-**Accuracy:**
-- Grounded in verified sources
-- Reduces hallucination
-- Citable references
+**Personalization:** Questions and study plan are tailored to the job and resume. **Groundedness:** Outputs are constrained to resume and JD; no invented company details. **Actionability:** Rubric-based scoring and concrete feedback (strengths, missing points, improved answer, next drill). **Practice:** Both typed and voice practice with persistent history per question.
 
 ---
 
@@ -2766,8 +2624,10 @@ class InterviewPrep(Base):
 - `GET /api/jobs/recommendations`: Get personalized job recommendations
 
 **Interview Prep:**
-- `POST /api/interview-prep/generate/{application_id}`: Generate RAG-based prep
-- `GET /api/interview-prep/{application_id}`: Retrieve preparation materials
+- `POST /api/interview-prep/generate`: Generate prep (body: application_id, days, focus, difficulty); uses resume + JD context, OpenAI, stores generated_json
+- `GET /api/interview-prep/{application_id}`: Retrieve preparation materials (including generated_json)
+- `POST /api/interview-prep/evaluate`: Evaluate typed answer (body: interview_prep_id, question_id, answer_text); returns score and feedback, persists InterviewAnswer
+- `POST /api/interview-prep/voice-answer`: Upload audio (multipart: audio_file, interview_prep_id, question_id); Whisper transcript then same evaluation as typed
 
 ### 7.2 Request/Response Flow
 
@@ -2784,12 +2644,12 @@ class InterviewPrep(Base):
 
 **Interview Prep Generation:**
 ```
-1. User requests interview prep for application
-2. System extracts job description and user profile
-3. Construct RAG query
-4. Retrieve relevant chunks from vector database
-5. Generate personalized content using LLM
-6. Store and return structured preparation materials
+1. User requests interview prep (application_id, days, focus, difficulty)
+2. Backend loads resume text and job description from database; infers seniority
+3. Resume and JD are truncated; prompt is built with schema and safety rules
+4. OpenAI Chat Completions generates structured JSON (prep package)
+5. Response is validated and stored in InterviewPrep.generated_json
+6. Frontend displays role context, study plan, questions; user can practice (type or voice) and get evaluated feedback
 ```
 
 ### 7.3 Error Handling and Validation
@@ -2821,7 +2681,7 @@ class InterviewPrep(Base):
 - Application success rates
 - User feedback on relevance
 
-**RAG System Quality (Future):**
+**Interview Prep Quality:**
 - Question relevance (human evaluation)
 - Answer accuracy (expert review)
 - User engagement metrics
@@ -2831,19 +2691,19 @@ class InterviewPrep(Base):
 **Current Limitations:**
 1. Limited to English language resumes
 2. Skill vocabulary may miss domain-specific terms
-3. Interview prep uses static templates (pre-RAG)
+3. Interview prep context is truncated (4k chars each for resume/JD) to control OpenAI cost
 4. No real-time ATS simulation
 
 **Technical Challenges:**
 1. PDF parsing accuracy varies with document structure
 2. Embedding model may not capture domain-specific semantics
-3. RAG system requires substantial knowledge base curation
-4. LLM costs and latency for real-time generation
+3. OpenAI costs and latency for prep generation and evaluation; token limits can truncate very long prep output
+4. Voice answer quality depends on Whisper transcription accuracy
 
 ### 8.3 Future Enhancements
 
 **Short-term:**
-1. Implement RAG system for interview prep (as described in Section 6)
+1. Optional OpenAI managed vector store or custom retrieval for larger interview/knowledge bases (Section 6 describes current context-only implementation)
 2. Expand skill vocabulary with domain-specific terms
 3. Add multi-language support
 4. Real-time resume editing suggestions
@@ -3300,7 +3160,7 @@ User Views Results
 
 ## Conclusion
 
-This methodology document presents a comprehensive technical framework for an AI-powered job application tracking and resume evaluation system. The system integrates multiple NLP and ML components including document parsing, semantic embeddings, skill extraction, and automated evaluation pipelines. The proposed RAG enhancement for interview preparation will significantly improve the system's ability to provide personalized, context-aware guidance to job seekers.
+This methodology document presents a comprehensive technical framework for an AI-powered job application tracking and resume evaluation system. The system integrates multiple NLP and ML components including document parsing, semantic embeddings, skill extraction, and automated evaluation pipelines. Interview preparation is implemented using OpenAI with resume and job description context, structured prep packages, and practice evaluation (typed and voice), providing personalized, context-aware guidance to job seekers.
 
 **Key Technical Achievements:**
 
@@ -3314,7 +3174,7 @@ This methodology document presents a comprehensive technical framework for an AI
 
 5. **Semantic Job Matching**: Embedding-based recommendation system enables personalized job suggestions based on semantic similarity and user preferences.
 
-6. **Scalable Architecture**: Modular design allows for incremental improvements, horizontal scaling, and future enhancements like RAG-based interview preparation.
+6. **Scalable Architecture**: Modular design allows for incremental improvements, horizontal scaling, and future enhancements (e.g. optional vector stores for interview prep knowledge bases).
 
 **System Capabilities:**
 
@@ -3323,9 +3183,9 @@ This methodology document presents a comprehensive technical framework for an AI
 - Provides detailed evaluation across 5 dimensions
 - Generates personalized job recommendations using semantic similarity
 - Tracks application progress and resume versions
-- Prepares for RAG-enhanced interview preparation
+- Provides OpenAI-based interview prep (resume + JD context) with practice and evaluated feedback (typed and voice)
 
-The modular architecture allows for incremental improvements and scalability. Future work will focus on implementing the RAG system, expanding the knowledge base, and validating the system's effectiveness through user studies and A/B testing. The comprehensive technical documentation provided in this methodology enables complete understanding of the system's implementation without requiring access to source code.
+The modular architecture allows for incremental improvements and scalability. Future work may extend interview prep with optional vector stores or larger knowledge bases, and validate effectiveness through user studies and A/B testing. The comprehensive technical documentation provided in this methodology enables complete understanding of the system's implementation without requiring access to source code.
 
 ---
 
