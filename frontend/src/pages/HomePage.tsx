@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { useAuth } from '../contexts/AuthContext'
+import SearchableSelect from '../components/SearchableSelect'
+import {
+  ALL_COUNTRIES,
+  ALL_INDUSTRIES,
+  ALL_DEGREE_TYPES,
+  ALL_FIELDS_OF_STUDY,
+} from '../data/comprehensiveData'
 
 interface Application {
   id: number
@@ -17,6 +24,20 @@ interface Application {
   resume_score: number | null
 }
 
+interface JobRecommendation {
+  job_id: number
+  title: string
+  company: string
+  location_display?: string | null
+  url?: string | null
+  created_at?: string | null
+  remote_type?: string | null
+  salary_min?: number | null
+  salary_max?: number | null
+  description_text?: string | null
+  score: number
+}
+
 const STATUS_OPTIONS = ['Preparing', 'Applied', 'Interview Prep', 'Rejected']
 
 export default function HomePage() {
@@ -25,12 +46,26 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [showRecommendationsModal, setShowRecommendationsModal] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [showResultsModal, setShowResultsModal] = useState(false)
+  const [showApplicationDetailModal, setShowApplicationDetailModal] = useState(false)
+  const [applicationDetailData, setApplicationDetailData] = useState<{
+    application: Application
+    evaluation_scores: any
+    overall_score: number | null
+    suggestions: string[]
+  } | null>(null)
+  const [detailExpandedSections, setDetailExpandedSections] = useState<Record<string, boolean>>({})
+  const [reUploadFile, setReUploadFile] = useState<File | null>(null)
+  const [reUploading, setReUploading] = useState(false)
   const [uploadingResume, setUploadingResume] = useState(false)
   const [evaluationResults, setEvaluationResults] = useState<any>(null)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
+  const [recommendations, setRecommendations] = useState<JobRecommendation[]>([])
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false)
+  const [recommendationsError, setRecommendationsError] = useState('')
   const [newApplication, setNewApplication] = useState({
     company_name: '',
     job_title: '',
@@ -42,6 +77,10 @@ export default function HomePage() {
     notes: '',
   })
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [profileForm, setProfileForm] = useState<Record<string, any>>({})
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileError, setProfileError] = useState('')
 
   useEffect(() => {
     // Only fetch applications if user is logged in
@@ -99,6 +138,56 @@ export default function HomePage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const openRecommendationsModal = async () => {
+    setShowRecommendationsModal(true)
+    setShowAddModal(false)
+    setRecommendations([])
+    setRecommendationsError('')
+    setLoadingRecommendations(true)
+
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        setRecommendationsError('No authentication token found. Please log in.')
+        return
+      }
+
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      const headers: any = {
+        Authorization: `Bearer ${token}`,
+      }
+
+      const response = await axios.get('/jobs/recommendations?limit=20', { headers })
+      setRecommendations(response.data)
+    } catch (err: any) {
+      console.error('Error fetching job recommendations:', err)
+      const message =
+        err.response?.data?.detail ||
+        err.message ||
+        'Failed to load job recommendations. You can still add an application manually.'
+      setRecommendationsError(message)
+    } finally {
+      setLoadingRecommendations(false)
+    }
+  }
+
+  const handleUseRecommendation = (job: JobRecommendation) => {
+    setNewApplication({
+      company_name: job.company || '',
+      job_title: job.title || '',
+      job_url: job.url || '',
+      job_description_text: job.description_text || '',
+      industry: newApplication.industry,
+      country: newApplication.country,
+      status: 'Preparing',
+      notes: newApplication.notes,
+    })
+    setShowRecommendationsModal(false)
+    setError('')
+    setSuccess('')
+    setShowAddModal(true)
   }
 
   const handleAddApplication = async (e: React.FormEvent) => {
@@ -222,6 +311,123 @@ export default function HomePage() {
     setSelectedFile(null)
   }
 
+  const openApplicationDetail = async (appId: number) => {
+    setShowApplicationDetailModal(true)
+    setApplicationDetailData(null)
+    setDetailExpandedSections({})
+    setReUploadFile(null)
+    setError('')
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      const res = await axios.get(`/applications/${appId}/evaluation`)
+      setApplicationDetailData(res.data)
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load application details')
+    }
+  }
+
+  const handleReUploadResume = async (applicationId: number) => {
+    if (!reUploadFile) {
+      setError('Please select a file to upload.')
+      return
+    }
+    setReUploading(true)
+    setError('')
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+      const formData = new FormData()
+      formData.append('file', reUploadFile)
+      const res = await axios.post(`/resumes/upload/${applicationId}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${token}` },
+        timeout: 120000,
+      })
+      setApplicationDetailData((prev) =>
+        prev
+          ? {
+              ...prev,
+              evaluation_scores: res.data.evaluation_scores,
+              overall_score: res.data.overall_score,
+              suggestions: res.data.suggestions || [],
+            }
+          : null
+      )
+      setReUploadFile(null)
+      setSuccess('Resume re-uploaded and analyzed successfully.')
+      await fetchApplications()
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Re-upload failed.')
+    } finally {
+      setReUploading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (showProfileModal && user) {
+      setProfileError('')
+      setProfileLoading(true)
+      const token = localStorage.getItem('token')
+      if (!token) {
+        setProfileLoading(false)
+        return
+      }
+      axios
+        .get('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => {
+          const u = res.data
+          setProfileForm({
+            name: u.name ?? '',
+            email: u.email ?? '',
+            highest_degree: u.highest_degree ?? '',
+            major: Array.isArray(u.major) ? u.major : [],
+            graduation_year: u.graduation_year != null ? String(u.graduation_year) : '',
+            country: u.country ?? '',
+            primary_industry_preference: u.primary_industry_preference ?? '',
+            primary_role_preference: u.primary_role_preference ?? '',
+            desired_countries: Array.isArray(u.desired_countries) ? u.desired_countries : [],
+            years_experience: u.years_experience != null ? String(u.years_experience) : '',
+            remote_preference: u.remote_preference ?? '',
+            work_authorization: u.work_authorization ?? '',
+            job_type_preference: u.job_type_preference ?? 'Full-time',
+          })
+        })
+        .catch((err) => setProfileError(err.response?.data?.detail || 'Failed to load profile'))
+        .finally(() => setProfileLoading(false))
+    }
+  }, [showProfileModal, user])
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setProfileSaving(true)
+    setProfileError('')
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+      const payload: Record<string, any> = {}
+      if (profileForm.name !== undefined) payload.name = profileForm.name || null
+      if (profileForm.highest_degree !== undefined) payload.highest_degree = profileForm.highest_degree || null
+      if (profileForm.major !== undefined) payload.major = profileForm.major?.length ? profileForm.major : null
+      if (profileForm.graduation_year !== undefined) payload.graduation_year = profileForm.graduation_year ? parseInt(profileForm.graduation_year, 10) : null
+      if (profileForm.country !== undefined) payload.country = profileForm.country || null
+      if (profileForm.primary_industry_preference !== undefined) payload.primary_industry_preference = profileForm.primary_industry_preference || null
+      if (profileForm.primary_role_preference !== undefined) payload.primary_role_preference = profileForm.primary_role_preference || null
+      if (profileForm.desired_countries !== undefined) payload.desired_countries = profileForm.desired_countries?.length ? profileForm.desired_countries : null
+      if (profileForm.years_experience !== undefined) payload.years_experience = profileForm.years_experience ? parseInt(profileForm.years_experience, 10) : null
+      if (profileForm.remote_preference !== undefined) payload.remote_preference = profileForm.remote_preference || null
+      if (profileForm.work_authorization !== undefined) payload.work_authorization = profileForm.work_authorization || null
+      if (profileForm.job_type_preference !== undefined) payload.job_type_preference = profileForm.job_type_preference || null
+      await axios.patch('/auth/me', payload, { headers: { Authorization: `Bearer ${token}` } })
+      setSuccess('Profile updated successfully.')
+      setShowProfileModal(false)
+    } catch (err: any) {
+      setProfileError(err.response?.data?.detail || err.message || 'Failed to save profile')
+    } finally {
+      setProfileSaving(false)
+    }
+  }
+
   const handleStatusChange = async (id: number, newStatus: string) => {
     try {
       const application = applications.find((app) => app.id === id)
@@ -332,9 +538,9 @@ export default function HomePage() {
           </div>
           <button
             onClick={() => {
-              setShowAddModal(true)
               setError('')
               setSuccess('')
+              openRecommendationsModal()
             }}
             className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm font-medium"
           >
@@ -356,7 +562,11 @@ export default function HomePage() {
               <p className="mt-1 text-sm text-gray-500">Get started by creating a new job application.</p>
               <div className="mt-6">
                 <button
-                  onClick={() => setShowAddModal(true)}
+                  onClick={() => {
+                    setError('')
+                    setSuccess('')
+                    openRecommendationsModal()
+                  }}
                   className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
                 >
                   <svg className="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -435,6 +645,13 @@ export default function HomePage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => openApplicationDetail(app.id)}
+                            className="text-indigo-600 hover:text-indigo-900 font-medium"
+                          >
+                            View
+                          </button>
                           {app.job_url && (
                             <a
                               href={app.job_url}
@@ -456,6 +673,302 @@ export default function HomePage() {
           )}
         </div>
       </main>
+
+      {/* Job Recommendations Modal */}
+      {showRecommendationsModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="relative bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">Recommended roles based on your profile</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  These suggestions use the preferences you set during onboarding (not your resume). You can also skip and add an application manually.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowRecommendationsModal(false)
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {recommendationsError && (
+                <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-800">
+                  {recommendationsError}
+                </div>
+              )}
+
+              {loadingRecommendations ? (
+                <div className="py-8 text-center text-gray-600 text-sm">
+                  Loading personalized job recommendations...
+                </div>
+              ) : recommendations.length === 0 ? (
+                <div className="py-8 text-center text-gray-600 text-sm">
+                  No recommendations available right now. You can still add an application manually.
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[55vh] overflow-y-auto">
+                  {recommendations.map((job) => (
+                    <div
+                      key={job.job_id}
+                      className="border rounded-lg p-4 hover:bg-gray-50 transition flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    >
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-900">
+                          {job.title}
+                        </h4>
+                        <p className="text-xs text-gray-600">{job.company}</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {job.location_display && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-700">
+                              {job.location_display}
+                            </span>
+                          )}
+                          {job.remote_type && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-50 text-indigo-700">
+                              {job.remote_type}
+                            </span>
+                          )}
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-50 text-green-700">
+                            Match score: {(job.score * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                        {job.url && (
+                          <a
+                            href={job.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-indigo-600 hover:text-indigo-800"
+                          >
+                            View posting
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleUseRecommendation(job)}
+                          className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                        >
+                          Use this job
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col sm:flex-row justify-end gap-3 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRecommendationsModal(false)
+                  }}
+                  className="px-4 py-2 text-xs sm:text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRecommendationsModal(false)
+                    setError('')
+                    setSuccess('')
+                    setShowAddModal(true)
+                  }}
+                  className="px-4 py-2 text-xs sm:text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                >
+                  Skip – add application manually
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Application Detail Modal (previous application: resume score + re-upload) */}
+      {showApplicationDetailModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
+              <div>
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {applicationDetailData
+                    ? `${applicationDetailData.application.company_name} – ${applicationDetailData.application.job_title}`
+                    : 'Application details'}
+                </h3>
+                {applicationDetailData && (
+                  <p className="text-sm text-gray-500 mt-1">
+                    Status: {applicationDetailData.application.status} · Applied {formatDate(applicationDetailData.application.created_at)}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowApplicationDetailModal(false)
+                  setApplicationDetailData(null)
+                  setReUploadFile(null)
+                }}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              {!applicationDetailData ? (
+                <div className="py-12 text-center text-gray-600">Loading...</div>
+              ) : applicationDetailData.overall_score != null ? (
+                <>
+                  <div className="p-6 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border-2 border-indigo-200">
+                    <div className="text-center">
+                      <div className="text-4xl font-bold text-indigo-600 mb-2">
+                        {applicationDetailData.overall_score?.toFixed(1) ?? 'N/A'}
+                      </div>
+                      <div className="text-lg text-gray-700">Resume score (latest)</div>
+                      <div className="text-sm text-gray-500 mt-1">Out of 100 points</div>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    {applicationDetailData.evaluation_scores?.format && (
+                      <div className="border rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setDetailExpandedSections((s) => ({ ...s, format: !s.format }))}
+                          className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50"
+                        >
+                          <span className="text-lg font-semibold text-gray-900">Format & Structure</span>
+                          <span className="text-gray-600">
+                            {applicationDetailData.evaluation_scores.format.score?.toFixed(1) ?? 'N/A'}
+                          </span>
+                        </button>
+                        {detailExpandedSections.format && (
+                          <div className="px-6 py-4 border-t bg-gray-50 text-sm text-gray-700">
+                            {applicationDetailData.evaluation_scores.format.strengths?.length > 0 && (
+                              <>
+                                <p className="font-medium text-green-700 mb-1">Strengths:</p>
+                                <ul className="list-disc list-inside mb-2">{applicationDetailData.evaluation_scores.format.strengths.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul>
+                              </>
+                            )}
+                            {applicationDetailData.evaluation_scores.format.issues?.length > 0 && (
+                              <>
+                                <p className="font-medium text-red-700 mb-1">Areas to improve:</p>
+                                <ul className="list-disc list-inside">{applicationDetailData.evaluation_scores.format.issues.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {applicationDetailData.evaluation_scores?.grammar && (
+                      <div className="border rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setDetailExpandedSections((s) => ({ ...s, grammar: !s.grammar }))}
+                          className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50"
+                        >
+                          <span className="text-lg font-semibold text-gray-900">Grammar & Spelling</span>
+                          <span className="text-gray-600">
+                            {applicationDetailData.evaluation_scores.grammar.score?.toFixed(1) ?? 'N/A'}
+                          </span>
+                        </button>
+                        {detailExpandedSections.grammar && (
+                          <div className="px-6 py-4 border-t bg-gray-50 text-sm text-gray-700">
+                            {applicationDetailData.evaluation_scores.grammar.error_count === 0
+                              ? 'No errors detected.'
+                              : `${applicationDetailData.evaluation_scores.grammar.error_count} errors found.`}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {applicationDetailData.evaluation_scores?.job_compatibility && (
+                      <div className="border rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setDetailExpandedSections((s) => ({ ...s, job_compatibility: !s.job_compatibility }))}
+                          className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50"
+                        >
+                          <span className="text-lg font-semibold text-gray-900">Job Compatibility</span>
+                          <span className="text-gray-600">
+                            {applicationDetailData.evaluation_scores.job_compatibility.score?.toFixed(1) ?? 'N/A'}
+                          </span>
+                        </button>
+                        {detailExpandedSections.job_compatibility && (
+                          <div className="px-6 py-4 border-t bg-gray-50 text-sm text-gray-700">
+                            Matched / missing skills and similarity with job description.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {applicationDetailData.evaluation_scores?.ats && (
+                      <div className="border rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setDetailExpandedSections((s) => ({ ...s, ats: !s.ats }))}
+                          className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50"
+                        >
+                          <span className="text-lg font-semibold text-gray-900">ATS Content Depth</span>
+                          <span className="text-gray-600">
+                            {applicationDetailData.evaluation_scores.ats.score?.toFixed(1) ?? 'N/A'}
+                          </span>
+                        </button>
+                        {detailExpandedSections.ats && (
+                          <div className="px-6 py-4 border-t bg-gray-50 text-sm text-gray-700">
+                            Action verbs, quantification, clichés.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {applicationDetailData.suggestions?.length > 0 && (
+                      <div className="border rounded-lg p-4 bg-blue-50">
+                        <h4 className="font-semibold text-gray-900 mb-2">Suggestions</h4>
+                        <ol className="list-decimal list-inside text-sm text-gray-700 space-y-1">
+                          {applicationDetailData.suggestions.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="py-6 text-center text-gray-600">
+                  No resume uploaded for this application yet. You can upload one below.
+                </div>
+              )}
+              {applicationDetailData && (
+                <div className="border-t pt-6">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Re-upload resume (new version)</h4>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-800 cursor-pointer">
+                      <input
+                        type="file"
+                        className="sr-only"
+                        accept=".pdf,.doc,.docx"
+                        onChange={(e) => setReUploadFile(e.target.files?.[0] ?? null)}
+                      />
+                      <span className="font-medium">Choose file</span>
+                    </label>
+                    {reUploadFile && <span className="text-sm text-gray-600">{reUploadFile.name}</span>}
+                    <button
+                      type="button"
+                      disabled={!reUploadFile || reUploading}
+                      onClick={() => handleReUploadResume(applicationDetailData.application.id)}
+                      className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {reUploading ? 'Analyzing...' : 'Re-upload & analyze'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Application Modal */}
       {showAddModal && (
@@ -1058,28 +1571,190 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Profile Modal - Placeholder for now */}
+      {/* Edit Profile Modal */}
       {showProfileModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
-          <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="px-6 py-4 border-b flex justify-between items-center">
-              <h3 className="text-lg font-semibold text-gray-900">Edit Profile</h3>
+          <div className="relative bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+              <h3 className="text-xl font-semibold text-gray-900">Edit profile & preferences</h3>
               <button
+                type="button"
                 onClick={() => setShowProfileModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 text-2xl"
               >
                 ×
               </button>
             </div>
-            <div className="p-6">
-              <p className="text-gray-600">Profile editing feature coming soon!</p>
-              <button
-                onClick={() => setShowProfileModal(false)}
-                className="mt-4 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
-              >
-                Close
-              </button>
-            </div>
+            <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
+              {profileError && (
+                <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-800">
+                  {profileError}
+                </div>
+              )}
+              {profileLoading ? (
+                <div className="py-8 text-center text-gray-600">Loading profile...</div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={profileForm.name ?? ''}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={profileForm.email ?? ''}
+                      readOnly
+                      className="block w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-gray-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Email cannot be changed here.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Highest degree</label>
+                    <SearchableSelect
+                      options={ALL_DEGREE_TYPES}
+                      selected={profileForm.highest_degree ? [profileForm.highest_degree] : []}
+                      onChange={(selected) => setProfileForm((p) => ({ ...p, highest_degree: selected[0] || '' }))}
+                      placeholder="Select degree"
+                      multiple={false}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Field(s) of study / Major</label>
+                    <SearchableSelect
+                      options={ALL_FIELDS_OF_STUDY}
+                      selected={profileForm.major ?? []}
+                      onChange={(major) => setProfileForm((p) => ({ ...p, major }))}
+                      placeholder="Select field(s) of study"
+                      multiple={true}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Graduation year</label>
+                    <input
+                      type="number"
+                      min="1950"
+                      max="2030"
+                      value={profileForm.graduation_year ?? ''}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, graduation_year: e.target.value }))}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                    <SearchableSelect
+                      options={ALL_COUNTRIES}
+                      selected={profileForm.country ? [profileForm.country] : []}
+                      onChange={(selected) => setProfileForm((p) => ({ ...p, country: selected[0] || '' }))}
+                      placeholder="Select country"
+                      multiple={false}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Primary role preference</label>
+                    <input
+                      type="text"
+                      value={profileForm.primary_role_preference ?? ''}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, primary_role_preference: e.target.value }))}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="e.g. Software Engineer, Data Analyst"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Industry preference</label>
+                    <SearchableSelect
+                      options={ALL_INDUSTRIES}
+                      selected={profileForm.primary_industry_preference ? [profileForm.primary_industry_preference] : []}
+                      onChange={(selected) => setProfileForm((p) => ({ ...p, primary_industry_preference: selected[0] || '' }))}
+                      placeholder="Select industry"
+                      multiple={false}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Countries you would like to work in</label>
+                    <SearchableSelect
+                      options={ALL_COUNTRIES}
+                      selected={profileForm.desired_countries ?? []}
+                      onChange={(desired_countries) => setProfileForm((p) => ({ ...p, desired_countries }))}
+                      placeholder="Select countries"
+                      multiple={true}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Years of experience</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={profileForm.years_experience ?? ''}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, years_experience: e.target.value }))}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Work location preference</label>
+                    <select
+                      value={profileForm.remote_preference ?? ''}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, remote_preference: e.target.value }))}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="">Select</option>
+                      <option value="Remote">Remote</option>
+                      <option value="On-site">On-site</option>
+                      <option value="Hybrid">Hybrid</option>
+                      <option value="Any">Any</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Work authorization</label>
+                    <select
+                      value={profileForm.work_authorization ?? ''}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, work_authorization: e.target.value }))}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="">Select</option>
+                      <option value="I can work without sponsorship">I can work without sponsorship</option>
+                      <option value="I need sponsorship">I need sponsorship</option>
+                      <option value="Not sure">Not sure</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Job type preference</label>
+                    <select
+                      value={profileForm.job_type_preference ?? 'Full-time'}
+                      onChange={(e) => setProfileForm((p) => ({ ...p, job_type_preference: e.target.value }))}
+                      className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="Full-time">Full-time</option>
+                      <option value="Part-time">Part-time</option>
+                      <option value="Internship">Internship</option>
+                      <option value="Any">Any</option>
+                    </select>
+                  </div>
+                  <div className="flex justify-end gap-3 pt-4 border-t">
+                    <button
+                      type="button"
+                      onClick={() => setShowProfileModal(false)}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={profileSaving}
+                      className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {profileSaving ? 'Saving...' : 'Save profile'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </form>
           </div>
         </div>
       )}

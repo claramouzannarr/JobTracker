@@ -34,10 +34,34 @@ class UserResponse(UserBase):
         from_attributes = True
 
 
+class UserUpdate(BaseModel):
+    """Optional fields for updating user profile (preferences)."""
+    name: Optional[str] = None
+    age: Optional[int] = None
+    country: Optional[str] = None
+    graduation_year: Optional[int] = None
+    highest_degree: Optional[str] = None
+    major: Optional[List[str]] = None
+    years_experience: Optional[int] = None
+    primary_industry_preference: Optional[str] = None
+    primary_role_preference: Optional[str] = None
+    desired_countries: Optional[List[str]] = None
+    languages_spoken: Optional[List[str]] = None
+    work_authorization: Optional[str] = None
+    remote_preference: Optional[str] = None
+    job_type_preference: Optional[str] = None
+
+
 # Auth schemas
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: Optional[Dict[str, Any]] = None  # { id, email, name } for frontend
 
 
 class LoginRequest(BaseModel):
@@ -71,6 +95,14 @@ class ApplicationResponse(ApplicationBase):
 
     class Config:
         from_attributes = True
+
+
+class ApplicationEvaluationResponse(BaseModel):
+    """Application plus latest resume evaluation (for viewing previous application)."""
+    application: ApplicationResponse
+    evaluation_scores: Optional[Dict[str, Any]] = None
+    overall_score: Optional[float] = None
+    suggestions: List[str] = []
 
 
 # Resume schemas

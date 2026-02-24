@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from datetime import timedelta
 from app.database import get_db
 from app.models import User
-from app.schemas import UserCreate, UserResponse, Token, LoginRequest
+from app.schemas import UserCreate, UserResponse, UserUpdate, Token, LoginResponse, LoginRequest
 from app.auth import get_password_hash, verify_password, create_access_token, get_current_user
 from app.config import settings
 
@@ -60,7 +60,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
         )
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=LoginResponse)
 async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     try:
         user = db.query(User).filter(User.email == login_data.email).first()
@@ -116,4 +116,19 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_user)):
     print(f"DEBUG /auth/me: Returning user {current_user.email} (ID: {current_user.id})")
+    return current_user
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_current_user(
+    update: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update current user profile (preferences). Only provided fields are updated."""
+    data = update.model_dump(exclude_unset=True)
+    for key, value in data.items():
+        setattr(current_user, key, value)
+    db.commit()
+    db.refresh(current_user)
     return current_user

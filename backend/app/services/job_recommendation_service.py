@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from sqlalchemy.orm import Session
 
-from app.models import JobPosting, User, Application, ResumeVersion
+from app.models import JobPosting, User
 from app.services.embedding_service import embed_text
 
 logger = logging.getLogger(__name__)
@@ -51,20 +51,13 @@ def _estimate_user_seniority(years_experience: Optional[int]) -> str:
 
 def build_user_profile_text(
     user: User,
-    resume_text: Optional[str] = None,
     preferences: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
-    Build a single string representing the user profile for embedding.
-    Includes resume (or summary if very long), desired roles, industry, skills, location, remote preference.
+    Build a single string representing the user profile for embedding,
+    based only on stored profile preferences (not resume content).
     """
     parts = []
-    max_resume_chars = 8000
-    if resume_text and resume_text.strip():
-        text = resume_text.strip()
-        if len(text) > max_resume_chars:
-            text = text[:max_resume_chars] + " [truncated]"
-        parts.append(text)
     if user.primary_role_preference:
         parts.append(f"Desired role: {user.primary_role_preference}")
     if user.primary_industry_preference:
@@ -77,16 +70,6 @@ def build_user_profile_text(
         countries = user.desired_countries if isinstance(user.desired_countries, list) else []
         if countries:
             parts.append("Desired countries: " + ", ".join(str(c) for c in countries[:10]))
-    # Include top skills from resume if we have them
-    if resume_text and resume_text.strip():
-        try:
-            from app.services.skill_extraction import extract_skills
-            skills = extract_skills(resume_text)
-            if skills:
-                top_skills = list(skills)[:20]
-                parts.append("Skills: " + ", ".join(top_skills))
-        except Exception:
-            pass
     if preferences:
         if preferences.get("desired_roles"):
             parts.append("Roles: " + ", ".join(preferences["desired_roles"][:10]))
@@ -110,25 +93,8 @@ def recommend_jobs(
     if not user:
         return []
 
-    # Latest resume text
-    latest_app = (
-        db.query(Application)
-        .filter(Application.user_id == user_id)
-        .order_by(Application.created_at.desc())
-        .first()
-    )
-    latest_resume_text = None
-    if latest_app:
-        rv = (
-            db.query(ResumeVersion)
-            .filter(ResumeVersion.application_id == latest_app.id)
-            .order_by(ResumeVersion.created_at.desc())
-            .first()
-        )
-        if rv and rv.extracted_text:
-            latest_resume_text = rv.extracted_text
-
-    user_text = build_user_profile_text(user, latest_resume_text)
+    # Build user profile text from stored preferences (no resume content)
+    user_text = build_user_profile_text(user)
     user_emb = embed_text(user_text)
     if not user_emb:
         logger.warning("Could not compute user profile embedding")
@@ -161,14 +127,8 @@ def recommend_jobs(
     candidates_count = len(candidates)
     t0 = time.perf_counter()
 
-    # Resume skills for explainability
+    # Resume skills for explainability (disabled when not using resume-based recommendations)
     resume_skills: Set[str] = set()
-    if latest_resume_text:
-        try:
-            from app.services.skill_extraction import extract_skills
-            resume_skills = extract_skills(latest_resume_text)
-        except Exception:
-            pass
 
     results = []
     for job in candidates:

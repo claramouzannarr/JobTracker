@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
 from app.models import User, Application, ResumeVersion
-from app.schemas import ApplicationCreate, ApplicationResponse
+from app.schemas import ApplicationCreate, ApplicationResponse, ApplicationEvaluationResponse
 from app.auth import get_current_user
 
 router = APIRouter()
@@ -71,6 +71,63 @@ async def get_applications(
         result.append(ApplicationResponse(**app_dict))
     
     return result
+
+
+@router.get("/{application_id}/evaluation", response_model=ApplicationEvaluationResponse)
+async def get_application_evaluation(
+    application_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get application and its latest resume evaluation (for viewing / re-upload)."""
+    application = db.query(Application).filter(
+        Application.id == application_id,
+        Application.user_id == current_user.id
+    ).first()
+    if not application:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Application not found"
+        )
+    latest = (
+        db.query(ResumeVersion)
+        .filter(ResumeVersion.application_id == application_id)
+        .order_by(ResumeVersion.created_at.desc())
+        .first()
+    )
+    app_dict = {
+        "id": application.id,
+        "user_id": application.user_id,
+        "company_name": application.company_name,
+        "job_title": application.job_title,
+        "job_url": application.job_url,
+        "job_description_text": application.job_description_text,
+        "industry": application.industry,
+        "country": application.country,
+        "status": application.status,
+        "notes": application.notes,
+        "stage_updated_at": application.stage_updated_at,
+        "created_at": application.created_at,
+        "updated_at": application.updated_at,
+        "resume_score": None,
+    }
+    if latest:
+        app_dict["resume_score"] = (latest.overall_score / 100) if latest.overall_score is not None else None
+        if app_dict["resume_score"] is None and latest.evaluation_scores:
+            app_dict["resume_score"] = latest.evaluation_scores.get("overall_score")
+            if app_dict["resume_score"] is not None:
+                app_dict["resume_score"] = app_dict["resume_score"] / 100
+    eval_scores = latest.evaluation_scores if latest else None
+    overall = latest.overall_score if latest else None
+    suggestions = []
+    if eval_scores and isinstance(eval_scores.get("suggestions"), list):
+        suggestions = eval_scores["suggestions"]
+    return ApplicationEvaluationResponse(
+        application=ApplicationResponse(**app_dict),
+        evaluation_scores=eval_scores,
+        overall_score=overall,
+        suggestions=suggestions,
+    )
 
 
 @router.get("/{application_id}", response_model=ApplicationResponse)
