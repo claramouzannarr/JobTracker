@@ -206,7 +206,17 @@ def extract_skills(text: str, skill_vocab: Optional[List[str]] = None) -> Set[st
     if skill_vocab is None:
         skill_vocab = load_skill_vocabulary()
     
-    # Combine exact matching and semantic matching
+    # If both spaCy and the embedder are unavailable, fall back to a simple
+    # substring-based matcher so we still detect skills for JD compatibility.
+    if nlp is None and skill_embedder is None:
+        text_lower = text.lower()
+        fallback_skills = {
+            skill for skill in skill_vocab
+            if skill.lower() in text_lower
+        }
+        return fallback_skills
+    
+    # Combine exact matching and semantic matching when advanced models exist
     exact_skills = extract_skills_with_matcher(text, skill_vocab)
     semantic_skills = find_semantic_skills(text, skill_vocab)
     

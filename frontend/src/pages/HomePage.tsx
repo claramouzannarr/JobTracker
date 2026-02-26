@@ -1109,19 +1109,19 @@ export default function HomePage() {
                         )}
                       </div>
                     )}
-                    {applicationDetailData.evaluation_scores?.ats && (
+                    {applicationDetailData.evaluation_scores?.content_depth && (
                       <div className="border rounded-lg overflow-hidden">
                         <button
                           type="button"
-                          onClick={() => setDetailExpandedSections((s) => ({ ...s, ats: !s.ats }))}
+                          onClick={() => setDetailExpandedSections((s) => ({ ...s, content_depth: !s.content_depth }))}
                           className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50"
                         >
-                          <span className="text-lg font-semibold text-gray-900">ATS Content Depth</span>
+                          <span className="text-lg font-semibold text-gray-900">Content Depth</span>
                           <span className="text-gray-600">
-                            {applicationDetailData.evaluation_scores.ats.score?.toFixed(1) ?? 'N/A'}
+                            {applicationDetailData.evaluation_scores.content_depth.score?.toFixed(1) ?? 'N/A'}
                           </span>
                         </button>
-                        {detailExpandedSections.ats && (
+                        {detailExpandedSections.content_depth && (
                           <div className="px-6 py-4 border-t bg-gray-50 text-sm text-gray-700">
                             Action verbs, quantification, clichés.
                           </div>
@@ -1908,23 +1908,23 @@ export default function HomePage() {
                   )}
                 </div>
 
-                {/* ATS Score */}
+                {/* Content Depth Score */}
                 <div className="border rounded-lg overflow-hidden">
                   <button
-                    onClick={() => setExpandedSections({...expandedSections, ats: !expandedSections.ats})}
+                    onClick={() => setExpandedSections({...expandedSections, content_depth: !expandedSections.content_depth})}
                     className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center gap-4">
                       <div className="text-2xl font-bold text-gray-700">
-                        {evaluationResults.evaluation_scores?.ats?.score?.toFixed(1) || 'N/A'}
+                        {evaluationResults.evaluation_scores?.content_depth?.score?.toFixed(1) || 'N/A'}
                       </div>
                       <div>
-                        <h4 className="text-lg font-semibold text-gray-900">ATS Content Depth</h4>
+                        <h4 className="text-lg font-semibold text-gray-900">Content Depth</h4>
                         <p className="text-sm text-gray-500">Action verbs, quantification, clichés, skills</p>
                       </div>
                     </div>
                     <svg
-                      className={`w-5 h-5 text-gray-500 transform transition-transform ${expandedSections.ats ? 'rotate-180' : ''}`}
+                      className={`w-5 h-5 text-gray-500 transform transition-transform ${expandedSections.content_depth ? 'rotate-180' : ''}`}
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -1933,14 +1933,14 @@ export default function HomePage() {
                     </svg>
                   </button>
                   
-                  {expandedSections.ats && (
+                  {expandedSections.content_depth && (
                     <div className="px-6 py-4 border-t bg-gray-50 space-y-4">
                       {/* Strengths */}
-                      {evaluationResults.evaluation_scores?.ats?.strengths?.length > 0 && (
+                      {evaluationResults.evaluation_scores?.content_depth?.strengths?.length > 0 && (
                         <div>
                           <p className="text-sm font-semibold text-green-700 mb-2">✓ What's Working Well:</p>
                           <ul className="list-none space-y-1">
-                            {evaluationResults.evaluation_scores.ats.strengths.map((strength: string, idx: number) => (
+                            {evaluationResults.evaluation_scores.content_depth.strengths.map((strength: string, idx: number) => (
                               <li key={idx} className="text-sm text-green-600">{strength}</li>
                             ))}
                           </ul>
@@ -1948,11 +1948,11 @@ export default function HomePage() {
                       )}
                       
                       {/* Issues */}
-                      {evaluationResults.evaluation_scores?.ats?.issues?.length > 0 && (
+                      {evaluationResults.evaluation_scores?.content_depth?.issues?.length > 0 && (
                         <div>
                           <p className="text-sm font-semibold text-red-700 mb-2">⚠ Areas to Improve:</p>
                           <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
-                            {evaluationResults.evaluation_scores.ats.issues.map((issue: string, idx: number) => (
+                            {evaluationResults.evaluation_scores.content_depth.issues.map((issue: string, idx: number) => (
                               <li key={idx}>{issue}</li>
                             ))}
                           </ul>
@@ -1960,11 +1960,11 @@ export default function HomePage() {
                       )}
                       
                       {/* Clichés */}
-                      {evaluationResults.evaluation_scores?.ats?.cliches_found?.length > 0 && (
+                      {evaluationResults.evaluation_scores?.content_depth?.cliches_found?.length > 0 && (
                         <div>
-                          <p className="text-sm font-semibold text-yellow-700 mb-2">⚠ Clichés Found ({evaluationResults.evaluation_scores.ats.cliches_found.length}):</p>
+                          <p className="text-sm font-semibold text-yellow-700 mb-2">⚠ Clichés Found ({evaluationResults.evaluation_scores.content_depth.cliches_found.length}):</p>
                           <div className="flex flex-wrap gap-2">
-                            {evaluationResults.evaluation_scores.ats.cliches_found.map((cliche: string, idx: number) => (
+                            {evaluationResults.evaluation_scores.content_depth.cliches_found.map((cliche: string, idx: number) => (
                               <span key={idx} className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">
                                 {cliche}
                               </span>
@@ -1975,41 +1975,41 @@ export default function HomePage() {
                       )}
                       
                       {/* Detailed Breakdown */}
-                      {evaluationResults.evaluation_scores?.ats?.details && (
+                      {evaluationResults.evaluation_scores?.content_depth?.details && (
                         <div className="mt-4 space-y-3 text-sm">
-                          {evaluationResults.evaluation_scores.ats.details.action_verbs && (
+                          {evaluationResults.evaluation_scores.content_depth.details.action_verbs && (
                             <div className="bg-white p-3 rounded border">
                               <p className="font-medium text-gray-700 mb-1">Action Verbs:</p>
-                              <p className="text-gray-600">{evaluationResults.evaluation_scores.ats.details.action_verbs.score_breakdown}</p>
-                              {evaluationResults.evaluation_scores.ats.details.action_verbs.examples_strong?.length > 0 && (
+                              <p className="text-gray-600">{evaluationResults.evaluation_scores.content_depth.details.action_verbs.score_breakdown}</p>
+                              {evaluationResults.evaluation_scores.content_depth.details.action_verbs.examples_strong?.length > 0 && (
                                 <p className="text-green-600 text-xs mt-1">
-                                  Strong verbs used: {evaluationResults.evaluation_scores.ats.details.action_verbs.examples_strong.join(', ')}
+                                  Strong verbs used: {evaluationResults.evaluation_scores.content_depth.details.action_verbs.examples_strong.join(', ')}
                                 </p>
                               )}
                             </div>
                           )}
                           
-                          {evaluationResults.evaluation_scores.ats.details.quantification && (
+                          {evaluationResults.evaluation_scores.content_depth.details.quantification && (
                             <div className="bg-white p-3 rounded border">
                               <p className="font-medium text-gray-700 mb-1">Quantification:</p>
-                              <p className="text-gray-600">{evaluationResults.evaluation_scores.ats.details.quantification.score_breakdown}</p>
-                              {evaluationResults.evaluation_scores.ats.details.quantification.bullets_with_numbers > 0 && (
+                              <p className="text-gray-600">{evaluationResults.evaluation_scores.content_depth.details.quantification.score_breakdown}</p>
+                              {evaluationResults.evaluation_scores.content_depth.details.quantification.bullets_with_numbers > 0 && (
                                 <p className="text-gray-500 text-xs mt-1">
-                                  {evaluationResults.evaluation_scores.ats.details.quantification.bullets_with_numbers} bullets with numbers
-                                  {evaluationResults.evaluation_scores.ats.details.quantification.bullets_with_percentages > 0 && 
-                                    `, ${evaluationResults.evaluation_scores.ats.details.quantification.bullets_with_percentages} with percentages`}
+                                  {evaluationResults.evaluation_scores.content_depth.details.quantification.bullets_with_numbers} bullets with numbers
+                                  {evaluationResults.evaluation_scores.content_depth.details.quantification.bullets_with_percentages > 0 && 
+                                    `, ${evaluationResults.evaluation_scores.content_depth.details.quantification.bullets_with_percentages} with percentages`}
                                 </p>
                               )}
                             </div>
                           )}
                           
-                          {evaluationResults.evaluation_scores.ats.details.skills && (
+                          {evaluationResults.evaluation_scores.content_depth.details.skills && (
                             <div className="bg-white p-3 rounded border">
                               <p className="font-medium text-gray-700 mb-1">Skills:</p>
-                              <p className="text-gray-600">{evaluationResults.evaluation_scores.ats.details.skills.score_breakdown}</p>
-                              {evaluationResults.evaluation_scores.ats.details.skills.missing_skills?.length > 0 && (
+                              <p className="text-gray-600">{evaluationResults.evaluation_scores.content_depth.details.skills.score_breakdown}</p>
+                              {evaluationResults.evaluation_scores.content_depth.details.skills.missing_skills?.length > 0 && (
                                 <p className="text-red-600 text-xs mt-1">
-                                  Consider adding: {evaluationResults.evaluation_scores.ats.details.skills.missing_skills.slice(0, 5).join(', ')}
+                                  Consider adding: {evaluationResults.evaluation_scores.content_depth.details.skills.missing_skills.slice(0, 5).join(', ')}
                                 </p>
                               )}
                             </div>

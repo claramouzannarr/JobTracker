@@ -122,7 +122,11 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         r"^(summary|professional\s+summary|objective|profile|about)$": "Summary",
         r"^(education|academic\s+background|academics)$": "Education",
         r"^(experience|work\s+experience|employment|professional\s+experience|work\s+history)$": "Experience",
-        r"^(skills|technical\s+skills|core\s+competencies|key\s+skills)$": "Skills",
+        # Treat various skill-related headers (including "Programming Languages")
+        # as the canonical Skills section.
+        r"^(skills|technical\s+skills|core\s+competencies|key\s+skills|"
+        r"programming\s+languages?|programming\s+skills|technical\s+proficiencies?|"
+        r"tools\s+and\s+technologies|tools\s*/\s*technologies|technology\s+stack)$": "Skills",
         r"^(projects|project\s+experience|selected\s+projects)$": "Projects",
     }
     
@@ -181,8 +185,11 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         exp_lines = experience_text.split('\n')
         current_item = {"company": "", "role": "", "bullets": [], "dates": ""}
         
-        # Common bullet characters (including Unicode variants)
-        bullet_chars = ['•', '-', '*', '◦', '▪', '▸', '▹', '▪', '▫', '→', '·']
+        # Common bullet characters (including many PDF/Word variants)
+        bullet_chars = [
+            '•', '-', '*', '◦', '▪', '▸', '▹', '▫', '→', '·',
+            '●', '○', '■', '♦', '‣', '▶', '►', '➤', '➔', '▻', '–', '—'
+        ]
         
         def is_bullet_line(line: str) -> bool:
             """Check if a line is a bullet point."""
@@ -277,8 +284,11 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         proj_lines = projects_text.split('\n')
         current_item = {"title": "", "bullets": [], "dates": ""}
         
-        # Reuse bullet detection function
-        bullet_chars = ['•', '-', '*', '◦', '▪', '▸', '▹', '▪', '▫', '→', '·']
+        # Reuse bullet detection function with extended bullet characters
+        bullet_chars = [
+            '•', '-', '*', '◦', '▪', '▸', '▹', '▫', '→', '·',
+            '●', '○', '■', '♦', '‣', '▶', '►', '➤', '➔', '▻', '–', '—'
+        ]
         
         def is_bullet_line(line: str) -> bool:
             """Check if a line is a bullet point."""
@@ -505,17 +515,33 @@ def evaluate_format_score(sections: Dict[str, Any], career_level: str = "experie
             min_bullets = min(bullet_counts)
             total_bullets = sum(bullet_counts)
             diff = max_bullets - min_bullets
-            
-            if diff <= 2:
+
+            # New rule: full points only when each experience entry
+            # has exactly the same number of bullets (and at least one).
+            unique_counts = set(bullet_counts)
+            if len(unique_counts) == 1 and next(iter(unique_counts)) > 0:
                 score += 30
-                strengths.append(f"✓ Consistent bullet points across {len(experience_items)} experience entries")
-            elif diff <= 4:
-                score += 20
-                issues.append(f"Bullet point counts vary: {min_bullets}-{max_bullets} per entry")
+                strengths.append(
+                    f"✓ Exactly {next(iter(unique_counts))} bullet(s) for each of the "
+                    f"{len(experience_items)} experience entries"
+                )
+                bullet_score_points = 30
+            elif diff <= 2:
+                # Partial credit when counts are close but not identical
+                score += 15
+                bullet_score_points = 15
+                issues.append(
+                    f"Bullet point counts are close but not identical "
+                    f"({min_bullets}-{max_bullets} per entry; aim for the same count per role)"
+                )
             else:
-                score += 10
-                issues.append(f"Inconsistent bullets: counts range from {min_bullets} to {max_bullets}")
-            
+                score += 5
+                bullet_score_points = 5
+                issues.append(
+                    f"Inconsistent bullets across roles "
+                    f"({min_bullets}-{max_bullets} per entry; align bullet counts per role)"
+                )
+
             details["bullets"] = {
                 "total_experience_items": len(experience_items),
                 "total_bullets": total_bullets,
@@ -523,7 +549,11 @@ def evaluate_format_score(sections: Dict[str, Any], career_level: str = "experie
                 "min_bullets": min_bullets,
                 "max_bullets": max_bullets,
                 "consistency_diff": diff,
-                "score_breakdown": f"{diff} bullet difference ({30 if diff <= 2 else 20 if diff <= 4 else 10}/30 points)"
+                "exact_match_required": True,
+                "score_breakdown": (
+                    f"{'Exact match' if len(unique_counts) == 1 and next(iter(unique_counts)) > 0 else f'{diff} bullet difference'} "
+                    f"({bullet_score_points}/30 points)"
+                )
             }
     else:
         issues.append("No experience items found with bullet points")
@@ -819,6 +849,18 @@ def evaluate_job_compatibility(
         job_skills_set = set()
         job_skills = []
     
+    # If advanced JD skill extraction fails or returns nothing, fall back to
+    # regex-based keyword extraction so we still have a meaningful skill set.
+    if not job_skills_set:
+        try:
+            jd_keywords = extract_job_keywords(job_description)
+            fallback_required = set(jd_keywords.get("required", []))
+            fallback_optional = set(jd_keywords.get("optional", []))
+            job_skills_set = fallback_required.union(fallback_optional)
+            job_skills = sorted(list(job_skills_set))
+        except Exception as e:
+            print(f"Error in JD keyword fallback: {e}")
+    
     # Extract skills from resume using demonstrated skills from sections if available
     resume_skills_set = set()
     if sections:
@@ -892,7 +934,9 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
     Checks: clichés, action verbs, KPIs/quantification, skills coverage, experience density.
     """
     score = 0.0
-    max_score = 100.0
+    # Max raw score without SDI component:
+    # 20 (clichés) + 20 (action verbs) + 30 (quantification) + 15 (experience) = 85
+    max_raw_score = 85.0
     issues = []
     strengths = []
     details = {}
@@ -923,10 +967,10 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
             "score_breakdown": "No clichés found (20/20 points)"
         }
     
-    # 2. Action verb quality (20 points)
+    # 2. Action verb and opening-phrase quality (20 points)
     experience_items = sections.get("Experience", {}).get("items", [])
     strong_verb_count = 0
-    weak_verb_count = 0
+    weak_or_cliche_count = 0
     total_bullets = 0
     strong_verbs_found = []
     weak_verbs_found = []
@@ -938,34 +982,61 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
             first_words = " ".join(bullet.split()[:3]).lower()
             found_strong = [v for v in STRONG_ACTION_VERBS if v in first_words]
             found_weak = [v for v in WEAK_ACTION_VERBS if v in first_words]
+            found_cliche = [c for c in CLICHE_PHRASES if c in first_words]
             
             if found_strong:
                 strong_verb_count += 1
                 strong_verbs_found.extend(found_strong[:1])  # Track first occurrence
-            elif found_weak:
-                weak_verb_count += 1
-                weak_verbs_found.extend(found_weak[:1])
+            elif found_weak or found_cliche:
+                weak_or_cliche_count += 1
+                # Track weak/cliché examples for messaging
+                if found_weak:
+                    weak_verbs_found.extend(found_weak[:1])
+                elif found_cliche:
+                    weak_verbs_found.extend(found_cliche[:1])
     
     if total_bullets > 0:
         strong_ratio = strong_verb_count / total_bullets
-        weak_ratio = weak_verb_count / total_bullets
-        verb_score = (strong_ratio * 20) - (weak_ratio * 10)
-        score += max(0, verb_score)
-        
+        weak_cliche_ratio = weak_or_cliche_count / total_bullets
+
+        # New scoring:
+        # - Full 20 points when no weak/cliché openings and strong_ratio >= 50%
+        # - Otherwise, base score from strong_ratio with a strong penalty for weak/cliché starts
+        if weak_cliche_ratio == 0 and strong_ratio >= 0.5:
+            verb_score = 20.0
+        else:
+            base = strong_ratio * 20.0
+            penalty = min(15.0, weak_cliche_ratio * 30.0)
+            verb_score = max(0.0, base - penalty)
+
+        score += verb_score
+
+        if weak_cliche_ratio == 0:
+            strengths.append("✓ No bullets start with weak or cliché openings")
+        elif weak_or_cliche_count > 0:
+            issues.append(
+                f"{int(weak_cliche_ratio * 100)}% of bullets start with weak or cliché phrases "
+                f"(e.g., {', '.join(sorted(set(weak_verbs_found))[:3])})"
+            )
+
         if strong_ratio >= 0.5:
             strengths.append(f"✓ {int(strong_ratio * 100)}% of bullets start with strong action verbs")
         else:
             issues.append(f"Only {int(strong_ratio * 100)}% of bullets use strong action verbs (target: 50%+)")
-        
+
         details["action_verbs"] = {
             "total_bullets": total_bullets,
             "strong_verbs": strong_verb_count,
-            "weak_verbs": weak_verb_count,
+            "weak_or_cliche_openings": weak_or_cliche_count,
             "strong_ratio": round(strong_ratio, 2),
-            "weak_ratio": round(weak_ratio, 2),
+            "weak_cliche_ratio": round(weak_cliche_ratio, 2),
             "examples_strong": list(set(strong_verbs_found))[:5],
             "examples_weak": list(set(weak_verbs_found))[:3],
-            "score_breakdown": f"{int(strong_ratio * 100)}% strong verbs ({max(0, verb_score):.1f}/20 points)"
+            "score_breakdown": (
+                f"{int(strong_ratio * 100)}% strong openings, "
+                f"{int(weak_cliche_ratio * 100)}% weak/cliché openings "
+                f"({verb_score:.1f}/20 points)"
+            )
         }
     else:
         issues.append("No bullet points found in experience")
@@ -1029,64 +1100,43 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
     if impact_verb_without_number:
         issues.append(f"{len(impact_verb_without_number)} impact verbs missing numbers")
     
-    # 4. Skill Demonstrated Index (SDI) - integrated into ATS (15 points)
-    # Uses weighted skills from Experience/Projects/Skills sections with per-bullet extraction
-    # Initialize skills_count to ensure it's always defined
+    # 4. Skills overview (informational only, no numeric SDI shown)
+    # We still surface a simple count of unique demonstrated skills across sections,
+    # but do not expose the SDI metric or its percentage.
     skills_list = sections.get("Skills", {}).get("skills_list", [])
     skills_count = len(skills_list)
-    
+
     try:
         sdi_result = compute_skill_demonstrated_index(sections)
-        sdi_score_raw = sdi_result["sdi_score"]  # 0-100 scale
-        sdi_score = (sdi_score_raw / 100) * 15  # Convert to 15-point scale
-        
-        # Get counts for feedback
         counts = sdi_result.get("counts", {})
         exp_count = counts.get("experience", 0)
         proj_count = counts.get("projects", 0)
         skills_section_count = counts.get("skills_section", 0)
         total_unique = counts.get("total_unique", 0)
-        
-        # Update skills_count from SDI result if available
+
         if skills_section_count > 0:
             skills_count = skills_section_count
-        
-        if sdi_score_raw >= 70:
-            strengths.append(f"✓ Strong skill demonstration ({total_unique} unique skills across sections)")
-        elif sdi_score_raw >= 50:
-            strengths.append(f"✓ Good skill demonstration ({total_unique} unique skills)")
-        else:
-            issues.append(f"Limited skill demonstration ({total_unique} unique skills)")
-        
+
         details["skills"] = {
-            "sdi_score": round(sdi_score_raw, 1),
-            "sdi_richness": round(sdi_result.get("richness", 0), 3),
-            "weighted_skill_count": round(sdi_result.get("weighted_skill_count", 0), 2),
             "experience_skills": exp_count,
             "projects_skills": proj_count,
             "skills_section_count": skills_section_count,
             "total_unique_skills": total_unique,
-            "score_breakdown": f"SDI: {sdi_score_raw:.1f}% ({sdi_score:.1f}/15 points)"
+            "score_breakdown": (
+                f"Demonstrated skills: {total_unique} unique skills across "
+                f"experience, projects, skills, and summary (informational only)"
+            )
         }
     except Exception as e:
-        print(f"Error computing SDI: {e}")
-        # Fallback to basic skills count
-        if skills_count >= 10:
-            sdi_score = 15
-            strengths.append(f"✓ Comprehensive skills list ({skills_count} skills)")
-        elif skills_count >= 5:
-            sdi_score = 10
-            issues.append(f"Consider adding more skills (currently {skills_count})")
-        else:
-            sdi_score = 5
-            issues.append(f"Limited skills listed ({skills_count})")
-        
+        print(f"Error computing skills overview: {e}")
+        # Fallback to basic skills count (informational only)
         details["skills"] = {
             "resume_skills_count": skills_count,
-            "score_breakdown": f"{skills_count} skills listed ({sdi_score}/15 points)"
+            "score_breakdown": (
+                f"{skills_count} skills listed in the skills section "
+                f"(informational only)"
+            )
         }
-    
-    score += sdi_score
     
     # 5. Experience density (15 points)
     experience_count = len(experience_items)
@@ -1142,16 +1192,9 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
         "score_breakdown": f"{experience_count} entries, dates: {'yes' if dates_found else 'no'} ({experience_score}/15 points)"
     }
     
-    # Ensure score is capped at 100
-    final_score = min(100, max(0, score))
-    
-    # Store SDI result for use in overall score calculation
-    sdi_result_final = None
-    try:
-        sdi_result_final = compute_skill_demonstrated_index(sections)
-    except Exception as e:
-        print(f"Error computing SDI for return: {e}")
-    
+    # Normalize raw score (0–max_raw_score) to 0–100 scale for Content Depth.
+    final_score = min(100, max(0, (score / max_raw_score) * 100.0))
+
     return {
         "score": round(final_score, 1),
         "cliches_found": cliches_found,
@@ -1162,7 +1205,6 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
         "impact_verb_without_number": impact_verb_without_number[:5],
         "skills_count": skills_count,
         "experience_items": experience_count,
-        "sdi": sdi_result_final,  # Store SDI as top-level component
         "issues": issues,
         "strengths": strengths,
         "details": details
@@ -1186,33 +1228,27 @@ def analyze_resume(
     format_eval = evaluate_format_score(sections, career_level, page_count)
     grammar_eval = evaluate_grammar_score(raw_text, sections)
     job_compat_eval = evaluate_job_compatibility(raw_text, job_description, sections)
-    ats_eval = evaluate_ats_score(raw_text, sections, job_description)
+    content_depth_eval = evaluate_ats_score(raw_text, sections, job_description)
     
     # Compute overall score with weights
     weights = {
-        "format": 0.25,
-        "ats": 0.25,
-        "job_compatibility": 0.25 if job_description else 0.0,
+        "format": 0.30,
+        "content_depth": 0.30,
+        "job_compatibility": 0.30 if job_description else 0.0,
         "grammar": 0.10,
-        "sdi": 0.15 if not job_description else 0.0,  # Use SDI directly when JD missing
     }
     
-    # Redistribute job_compatibility weight if JD missing
+    # Redistribute weights if JD is missing (no job compatibility component)
     if not job_description:
-        weights["ats"] = 0.35
-        weights["format"] = 0.30
-    
-    # Get SDI score from ATS evaluation
-    sdi_score_for_overall = 0.0
-    if ats_eval.get("sdi") and ats_eval["sdi"].get("sdi_score"):
-        sdi_score_for_overall = ats_eval["sdi"]["sdi_score"]  # Already 0-100 scale
+        weights["content_depth"] = 0.40
+        weights["format"] = 0.40
+        weights["job_compatibility"] = 0.0
     
     overall_score = (
         weights["format"] * format_eval["score"] +
-        weights["ats"] * ats_eval["score"] +
+        weights["content_depth"] * content_depth_eval["score"] +
         (weights["job_compatibility"] * job_compat_eval["score"] if job_compat_eval else 0) +
-        weights["grammar"] * grammar_eval["score"] +
-        weights["sdi"] * sdi_score_for_overall  # Use SDI directly instead of proxy
+        weights["grammar"] * grammar_eval["score"]
     )
     
     # Generate top 5 actionable suggestions
@@ -1221,9 +1257,9 @@ def analyze_resume(
         suggestions.append(f"Add missing sections: {', '.join(format_eval['missing_sections'])}")
     if job_compat_eval and job_compat_eval.get("missing_skills"):
         suggestions.append(f"Include skills: {', '.join(job_compat_eval['missing_skills'][:3])}")
-    if ats_eval.get("cliches_found"):
-        suggestions.append(f"Remove clichés: {', '.join(ats_eval['cliches_found'][:2])}")
-    if ats_eval.get("impact_verb_without_number"):
+    if content_depth_eval.get("cliches_found"):
+        suggestions.append(f"Remove clichés: {', '.join(content_depth_eval['cliches_found'][:2])}")
+    if content_depth_eval.get("impact_verb_without_number"):
         suggestions.append("Add numbers/metrics to impact verbs")
     if grammar_eval.get("error_count", 0) > 5:
         suggestions.append(f"Fix {grammar_eval['error_count']} grammar/spelling errors")
@@ -1237,7 +1273,7 @@ def analyze_resume(
         "format": format_eval,
         "grammar": grammar_eval,
         "job_compatibility": job_compat_eval,
-        "ats": ats_eval,
+        "content_depth": content_depth_eval,
         "parsed_sections": sections,
         "suggestions": suggestions[:5]
     }

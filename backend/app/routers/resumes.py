@@ -106,7 +106,8 @@ async def upload_resume(
         "format": analysis_result["format"],
         "grammar": analysis_result["grammar"],
         "job_compatibility": analysis_result["job_compatibility"],
-        "ats": analysis_result["ats"],
+        # Renamed from "ats" to "content_depth" to better reflect meaning
+        "content_depth": analysis_result["content_depth"],
         "suggestions": analysis_result["suggestions"]
     }
     parsed_sections = analysis_result["parsed_sections"]
