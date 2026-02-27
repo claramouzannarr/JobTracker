@@ -82,6 +82,7 @@ export default function HomePage() {
   const [success, setSuccess] = useState('')
   const [showRecommendationsModal, setShowRecommendationsModal] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showNewApplicationChoice, setShowNewApplicationChoice] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [showResultsModal, setShowResultsModal] = useState(false)
   const [showApplicationDetailModal, setShowApplicationDetailModal] = useState(false)
@@ -724,8 +725,8 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Add Application Button */}
-        <div className="mb-6 flex justify-between items-center">
+        {/* Add Application */}
+        <div className="mb-6 flex justify-between items-center gap-4">
           <div>
             <h2 className="text-2xl font-semibold text-gray-900">My Applications</h2>
             <p className="text-sm text-gray-500 mt-1">
@@ -733,10 +734,11 @@ export default function HomePage() {
             </p>
           </div>
           <button
+            type="button"
             onClick={() => {
               setError('')
               setSuccess('')
-              openRecommendationsModal()
+              setShowNewApplicationChoice(true)
             }}
             className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm font-medium"
           >
@@ -756,12 +758,13 @@ export default function HomePage() {
               </svg>
               <h3 className="mt-2 text-sm font-medium text-gray-900">No applications</h3>
               <p className="mt-1 text-sm text-gray-500">Get started by creating a new job application.</p>
-              <div className="mt-6">
+              <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <button
+                  type="button"
                   onClick={() => {
                     setError('')
                     setSuccess('')
-                    openRecommendationsModal()
+                    setShowNewApplicationChoice(true)
                   }}
                   className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
                 >
@@ -769,6 +772,17 @@ export default function HomePage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
                   New Application
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError('')
+                    setSuccess('')
+                    openRecommendationsModal()
+                  }}
+                  className="inline-flex items-center px-4 py-2 border border-indigo-600 text-indigo-600 shadow-sm text-sm font-medium rounded-md bg-white hover:bg-indigo-50"
+                >
+                  Browse Job Recommendations
                 </button>
               </div>
             </div>
@@ -990,6 +1004,52 @@ export default function HomePage() {
                   Skip – add application manually
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Application Choice Modal */}
+      {showNewApplicationChoice && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="border-b px-6 py-4 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-900">Start a new application</h3>
+              <button
+                type="button"
+                onClick={() => setShowNewApplicationChoice(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-sm text-gray-700">
+              <p>How would you like to start?</p>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewApplicationChoice(false)
+                    openRecommendationsModal()
+                  }}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 border border-indigo-600 text-indigo-600 rounded-md hover:bg-indigo-50 font-medium"
+                >
+                  Browse Job Recommendations
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewApplicationChoice(false)
+                    setShowAddModal(true)
+                  }}
+                  className="w-full inline-flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 font-medium"
+                >
+                  Skip and Add Manually
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                No search is run until you choose an option above.
+              </p>
             </div>
           </div>
         </div>

@@ -7,12 +7,12 @@ import numpy as np
 from typing import List, Set, Dict, Optional
 import os
 
-# Load spaCy model
+# Load spaCy model (prefer small, faster model)
 try:
-    nlp = spacy.load("en_core_web_trf")
+    nlp = spacy.load("en_core_web_sm")
 except OSError:
     try:
-        nlp = spacy.load("en_core_web_sm")
+        nlp = spacy.load("en_core_web_trf")
     except OSError:
         nlp = None
 
@@ -82,28 +82,38 @@ def load_skill_vocabulary(csv_path: Optional[str] = None) -> List[str]:
     return DEFAULT_SKILLS
 
 
+_SKILL_MATCHER = None
+_SKILL_LOOKUP: Dict[str, str] = {}
+_SKILL_VOCAB_KEY: Optional[tuple] = None
+
+
 def extract_skills_with_matcher(text: str, skill_vocab: List[str]) -> Set[str]:
-    """Extract skills using spaCy PhraseMatcher with optimized lookup."""
+    """Extract skills using spaCy PhraseMatcher with cached matcher for performance."""
+    global _SKILL_MATCHER, _SKILL_LOOKUP, _SKILL_VOCAB_KEY
+
     if nlp is None:
         return set()
-    
-    # Prebuild lookup dict for O(1) case recovery (performance improvement)
-    skill_lookup = {skill.lower(): skill for skill in skill_vocab}
-    
-    matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
-    patterns = [nlp.make_doc(skill.lower()) for skill in skill_vocab]
-    matcher.add("SKILLS", patterns)
-    
+
+    # Cache matcher per skill vocabulary to avoid rebuilding patterns every call
+    vocab_key = tuple(skill_vocab)
+    if _SKILL_MATCHER is None or _SKILL_VOCAB_KEY != vocab_key:
+        _SKILL_LOOKUP = {skill.lower(): skill for skill in skill_vocab}
+        matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+        patterns = [nlp.make_doc(skill.lower()) for skill in skill_vocab]
+        matcher.add("SKILLS", patterns)
+        _SKILL_MATCHER = matcher
+        _SKILL_VOCAB_KEY = vocab_key
+
     doc = nlp(text.lower())
-    matches = matcher(doc, as_spans=True)
-    
+    matches = _SKILL_MATCHER(doc, as_spans=True)
+
     found_skills = set()
     for match in matches:
-        # O(1) lookup instead of O(n) loop
         matched_lower = match.text.lower()
-        if matched_lower in skill_lookup:
-            found_skills.add(skill_lookup[matched_lower])
-    
+        canonical = _SKILL_LOOKUP.get(matched_lower)
+        if canonical:
+            found_skills.add(canonical)
+
     return found_skills
 
 

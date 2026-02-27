@@ -934,9 +934,9 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
     Checks: clichés, action verbs, KPIs/quantification, skills coverage, experience density.
     """
     score = 0.0
-    # Max raw score without SDI component:
-    # 20 (clichés) + 20 (action verbs) + 30 (quantification) + 15 (experience) = 85
-    max_raw_score = 85.0
+    # Max raw score components:
+    # 20 (clichés) + 10 (action verbs) + 30 (quantification) + 15 (experience) = 75
+    max_raw_score = 75.0
     issues = []
     strengths = []
     details = {}
@@ -953,7 +953,13 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
     score += cliche_score
     
     if cliches_found:
-        issues.append(f"Found {len(cliches_found)} cliché phrase(s)")
+        # Include specific cliché phrases directly in the issue text so users
+        # always see which words to replace.
+        unique_cliches = sorted(set(cliches_found))
+        examples = ", ".join(unique_cliches[:5])
+        issues.append(
+            f"Cliché phrases found ({len(cliches_found)}): {examples}"
+        )
         details["cliches"] = {
             "found": cliches_found,
             "count": len(cliches_found),
@@ -967,7 +973,7 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
             "score_breakdown": "No clichés found (20/20 points)"
         }
     
-    # 2. Action verb and opening-phrase quality (20 points)
+    # 2. Action verb and opening-phrase quality (10 points)
     experience_items = sections.get("Experience", {}).get("items", [])
     strong_verb_count = 0
     weak_or_cliche_count = 0
@@ -996,53 +1002,48 @@ def evaluate_ats_score(raw_text: str, sections: Dict[str, Any], job_description:
                     weak_verbs_found.extend(found_cliche[:1])
     
     if total_bullets > 0:
-        strong_ratio = strong_verb_count / total_bullets
-        weak_cliche_ratio = weak_or_cliche_count / total_bullets
+        # New, simpler scoring:
+        # - Start with full 10 points.
+        # - If there are no strong-verb openings at all, drop to 5.
+        # - If any bullets start with cliché/weak phrases, apply a flat 1-point penalty.
+        verb_score = 10.0
 
-        # New scoring:
-        # - Full 20 points when no weak/cliché openings and strong_ratio >= 50%
-        # - Otherwise, base score from strong_ratio with a strong penalty for weak/cliché starts
-        if weak_cliche_ratio == 0 and strong_ratio >= 0.5:
-            verb_score = 20.0
+        if strong_verb_count == 0:
+            issues.append("No bullets start with strong action verbs; consider openings like led, implemented, designed.")
+            verb_score = 5.0
         else:
-            base = strong_ratio * 20.0
-            penalty = min(15.0, weak_cliche_ratio * 30.0)
-            verb_score = max(0.0, base - penalty)
-
-        score += verb_score
-
-        if weak_cliche_ratio == 0:
-            strengths.append("✓ No bullets start with weak or cliché openings")
-        elif weak_or_cliche_count > 0:
-            issues.append(
-                f"{int(weak_cliche_ratio * 100)}% of bullets start with weak or cliché phrases "
-                f"(e.g., {', '.join(sorted(set(weak_verbs_found))[:3])})"
+            strengths.append(
+                f"✓ Uses strong action verbs such as: {', '.join(sorted(set(strong_verbs_found))[:5])}"
             )
 
-        if strong_ratio >= 0.5:
-            strengths.append(f"✓ {int(strong_ratio * 100)}% of bullets start with strong action verbs")
+        if weak_or_cliche_count == 0:
+            strengths.append("✓ No bullets start with weak or cliché openings")
         else:
-            issues.append(f"Only {int(strong_ratio * 100)}% of bullets use strong action verbs (target: 50%+)")
+            issues.append(
+                f"{weak_or_cliche_count} bullets start with weak or cliché phrases "
+                f"(e.g., {', '.join(sorted(set(weak_verbs_found))[:3])})"
+            )
+            verb_score = max(0.0, verb_score - 1.0)
+
+        score += verb_score
 
         details["action_verbs"] = {
             "total_bullets": total_bullets,
             "strong_verbs": strong_verb_count,
             "weak_or_cliche_openings": weak_or_cliche_count,
-            "strong_ratio": round(strong_ratio, 2),
-            "weak_cliche_ratio": round(weak_cliche_ratio, 2),
             "examples_strong": list(set(strong_verbs_found))[:5],
             "examples_weak": list(set(weak_verbs_found))[:3],
             "score_breakdown": (
-                f"{int(strong_ratio * 100)}% strong openings, "
-                f"{int(weak_cliche_ratio * 100)}% weak/cliché openings "
-                f"({verb_score:.1f}/20 points)"
+                f"{strong_verb_count} bullets with strong action verbs, "
+                f"{weak_or_cliche_count} with weak/cliché openings "
+                f"({verb_score:.1f}/10 points)"
             )
         }
     else:
         issues.append("No bullet points found in experience")
         details["action_verbs"] = {
             "total_bullets": 0,
-            "score_breakdown": "No bullets found (0/20 points)"
+            "score_breakdown": "No bullets found (0/10 points)"
         }
     
     # 3. KPI and quantification (30 points)
