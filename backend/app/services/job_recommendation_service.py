@@ -13,8 +13,9 @@ from app.services.embedding_service import embed_text
 
 logger = logging.getLogger(__name__)
 
-# Max candidates to score (bounded compute)
-MAX_CANDIDATES = 3000
+# Max candidates to score (bounded compute). Keeping this modest helps
+# keep recommendation latency low while still exploring a rich set of jobs.
+MAX_CANDIDATES = 1200
 
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -127,9 +128,6 @@ def recommend_jobs(
     candidates_count = len(candidates)
     t0 = time.perf_counter()
 
-    # Resume skills for explainability (disabled when not using resume-based recommendations)
-    resume_skills: Set[str] = set()
-
     results = []
     for job in candidates:
         job_emb = job.embedding_vector
@@ -164,17 +162,6 @@ def recommend_jobs(
 
         final_score = sim * penalty_multiplier
 
-        # Job skills for explainability
-        job_skills: Set[str] = set()
-        if job.description_text:
-            try:
-                from app.services.skill_extraction import extract_skills_from_job_description
-                job_skills = extract_skills_from_job_description(job.description_text)
-            except Exception:
-                pass
-        matched_skills = list(resume_skills & job_skills)[:15]
-        missing_skills = list(job_skills - resume_skills)[:10]
-
         results.append({
             "job_id": job.id,
             "title": job.title,
@@ -187,8 +174,10 @@ def recommend_jobs(
             "salary_max": job.salary_max,
             "description_text": job.description_text[:500] + "..." if job.description_text and len(job.description_text) > 500 else job.description_text,
             "score": round(final_score, 4),
-            "matched_skills": matched_skills,
-            "missing_skills": missing_skills,
+            # For latency reasons, we skip per-job skill extraction here.
+            # Explanations focus on penalties (location, seniority, remote).
+            "matched_skills": [],
+            "missing_skills": [],
             "penalties_applied": penalties_applied,
         })
 
