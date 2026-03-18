@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
 class RateLimitError(RuntimeError):
     pass
 
-# Max chars to send for resume and JD (kept low to reduce OpenAI cost)
-MAX_RESUME_CHARS = 1_500
-MAX_JD_CHARS = 1_500
+# Max chars to send for resume and JD (richer context, still bounded)
+MAX_RESUME_CHARS = 4_000
+MAX_JD_CHARS = 4_000
 
-# Hard token caps
-MAX_GENERATE_TOKENS = 400
+# Hard token caps (allow richer package; eval stays lean)
+MAX_GENERATE_TOKENS = 900
 MAX_EVAL_TOKENS = 400
 
 # Per-user daily limits
@@ -182,20 +182,21 @@ User preferences summary: {user_prefs_summary or "Not specified"}
 --- JOB DESCRIPTION (use only this content; do not claim to have reviewed company website) ---
 {jd_block}
 
-You must output a single JSON object with these top-level keys (keep it extremely small; short strings only):
-- "role_context": object with keys: "target_title", "seniority", "company", "key_requirements" (array of strings, max 3 items).
+You must output a single JSON object with these top-level keys (concise but informative):
+- "role_context": object with keys: "target_title", "seniority", "company", "key_requirements" (array of strings, max 5 items).
 - "questions": array of exactly 8 question objects.
-- "skill_gaps": object with keys: "matched" (array of strings, max 5), "missing" (array of strings, max 5).
-- "answer_rubric": object with keys: "scoring_scale" (string) and "criteria" (array of objects with "name" and "description", max 4 items).
+- "skill_gaps": object with keys: "matched" (array of strings, max 8), "missing" (array of strings, max 8), "priority_to_learn" (array of strings, max 5).
+- "answer_rubric": object with keys: "scoring_scale" (string) and "criteria" (array of objects with "name" and "description", max 5 items).
 
-Strict constraints for questions (keep total output very short):
+Strict constraints for questions (must feel tailored, but stay short):
 - Total questions: exactly 8 questions:
   - 3 with type = "technical"
   - 3 with type = "behavioral"
   - 2 with type = "resume"
-- Each question object must have ONLY: "id" (e.g. "q1"), "type", "question".
-- Each "question" must be one short sentence (max ~14 words).
-- Do NOT include any extra keys inside question objects.
+- Each question object must have: "id" (e.g. "q1"), "type", "question", "what_good_looks_like" (array, max 3 bullets), "common_mistakes" (array, max 3 bullets), "follow_ups" (array, max 2 items).
+- For questions with type = "resume", you MUST also include a "resume_anchor" field: a short string quoting the specific internship/job from the resume (e.g. "Summer Analyst at Goldman Sachs, 2023").
+- Each "question" must be one short sentence (aim for max ~18 words).
+- All bullet strings must be short phrases, not long paragraphs.
 
 Grounding rules:
 - If a detail is not in the resume or job description above, do not confirm it; instead, say that there is not enough information in the provided resume/job description.

@@ -1237,17 +1237,22 @@ export default function HomePage() {
 
       {/* Interview Prep Modal */}
       {showInterviewPrepModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
-          <div className="relative bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
-              <h3 className="text-xl font-semibold text-gray-900">
-                Interview Prep
-                {interviewPrepAppId != null && applications.find((a) => a.id === interviewPrepAppId) && (
-                  <span className="text-gray-500 font-normal ml-2">
-                    – {applications.find((a) => a.id === interviewPrepAppId)?.company_name} · {applications.find((a) => a.id === interviewPrepAppId)?.job_title}
-                  </span>
-                )}
-              </h3>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden border border-slate-200 flex flex-col">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-gradient-to-r from-indigo-600 to-slate-900">
+              <div>
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  Interview Preparation
+                  {interviewPrepAppId != null && applications.find((a) => a.id === interviewPrepAppId) && (
+                    <span className="text-indigo-100 font-normal text-xs">
+                      · {applications.find((a) => a.id === interviewPrepAppId)?.company_name} · {applications.find((a) => a.id === interviewPrepAppId)?.job_title}
+                    </span>
+                  )}
+                </h3>
+                <p className="text-[11px] text-indigo-100/90">
+                  Questions and feedback grounded in your resume and this specific role.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -1257,74 +1262,179 @@ export default function HomePage() {
                   setPracticeQuestionId(null)
                   setEvaluationResult(null)
                 }}
-                className="text-gray-400 hover:text-gray-600 text-2xl"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 text-xl"
               >
                 ×
               </button>
             </div>
-            <div className="p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-50/70 space-y-6">
               {interviewPrepError && (
                 <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-800">{interviewPrepError}</div>
               )}
               {interviewPrepLoading ? (
-                <div className="py-12 text-center text-gray-600">Loading interview prep...</div>
+                <div className="py-12 flex flex-col items-center justify-center text-slate-600">
+                  <div className="h-8 w-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3" />
+                  <p className="text-sm">Loading interview prep…</p>
+                </div>
               ) : !interviewPrepData ? (
-                <div className="space-y-4">
-                  <p className="text-gray-700">No prep yet. Generate tailored interview preparation using your resume and this job description.</p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Preparation days</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={14}
-                        value={generateForm.days}
-                        onChange={(e) => setGenerateForm((f) => ({ ...f, days: Number(e.target.value) || 7 }))}
-                        className="block w-full px-3 py-2 border border-gray-300 rounded-md"
-                      />
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="rounded-xl bg-white border border-slate-200 p-5 shadow-sm">
+                    <h4 className="text-sm font-semibold text-slate-900 mb-2">Generation settings</h4>
+                    <p className="text-xs text-slate-600 mb-4">
+                      Use your resume and this job description to generate a structured prep package.
+                    </p>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">Preparation days</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={14}
+                          value={generateForm.days}
+                          onChange={(e) => setGenerateForm((f) => ({ ...f, days: Number(e.target.value) || 7 }))}
+                          className="block w-full px-3 py-2 border border-slate-300 rounded-md text-sm bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">Difficulty</label>
+                        <select
+                          value={generateForm.difficulty}
+                          onChange={(e) => setGenerateForm((f) => ({ ...f, difficulty: e.target.value }))}
+                          className="block w-full px-3 py-2 border border-slate-300 rounded-md text-sm bg-white"
+                        >
+                          <option value="easy">Easy</option>
+                          <option value="mixed">Mixed</option>
+                          <option value="hard">Hard</option>
+                        </select>
+                      </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Difficulty</label>
-                      <select
-                        value={generateForm.difficulty}
-                        onChange={(e) => setGenerateForm((f) => ({ ...f, difficulty: e.target.value }))}
-                        className="block w-full px-3 py-2 border border-gray-300 rounded-md"
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Focus areas</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['technical', 'behavioral', 'case', 'resume'].map((f) => {
+                          const active = generateForm.focus.includes(f)
+                          return (
+                            <button
+                              key={f}
+                              type="button"
+                              onClick={() =>
+                                setGenerateForm((prev) => ({
+                                  ...prev,
+                                  focus: active ? prev.focus.filter((x) => x !== f) : [...prev.focus, f],
+                                }))
+                              }
+                              className={`px-3 py-1 rounded-full text-xs border ${
+                                active
+                                  ? 'bg-indigo-50 text-indigo-700 border-indigo-300'
+                                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                              }`}
+                            >
+                              {f[0].toUpperCase() + f.slice(1)}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        disabled={generatingPrep}
+                        onClick={handleGeneratePrep}
+                        className="w-full inline-flex justify-center items-center px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 disabled:opacity-50"
                       >
-                        <option value="easy">Easy</option>
-                        <option value="mixed">Mixed</option>
-                        <option value="hard">Hard</option>
-                      </select>
+                        {generatingPrep ? 'Generating…' : 'Generate prep'}
+                      </button>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Focus areas</label>
-                    <div className="flex flex-wrap gap-2">
-                      {['technical', 'behavioral', 'case', 'resume'].map((f) => (
-                        <label key={f} className="inline-flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={generateForm.focus.includes(f)}
-                            onChange={(e) => {
-                              setGenerateForm((prev) => ({
-                                ...prev,
-                                focus: e.target.checked ? [...prev.focus, f] : prev.focus.filter((x) => x !== f),
-                              }))
-                            }}
-                            className="rounded border-gray-300 text-indigo-600"
-                          />
-                          <span className="ml-1 text-sm text-gray-700 capitalize">{f}</span>
-                        </label>
-                      ))}
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-100/80 p-5 flex flex-col justify-center">
+                    <h4 className="text-sm font-semibold text-slate-900 mb-2">What you’ll get</h4>
+                    <ul className="text-xs text-slate-700 space-y-1">
+                      <li>• Role summary and key requirements for this job.</li>
+                      <li>• 8 tailored technical, behavioral, and resume-based questions.</li>
+                      <li>• Highlighted skill gaps vs. the job description.</li>
+                      <li>• A rubric the AI uses to score your answers.</li>
+                    </ul>
+                  </div>
+                </div>
+              ) : !interviewPrepData.generated_json ? (
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="rounded-xl bg-white border border-slate-200 p-5 shadow-sm">
+                    <h4 className="text-sm font-semibold text-slate-900 mb-2">Generation settings</h4>
+                    <p className="text-xs text-slate-600 mb-4">
+                      Generate a fresh prep package for this application.
+                    </p>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">Preparation days</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={14}
+                          value={generateForm.days}
+                          onChange={(e) => setGenerateForm((f) => ({ ...f, days: Number(e.target.value) || 7 }))}
+                          className="block w-full px-3 py-2 border border-slate-300 rounded-md text-sm bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">Difficulty</label>
+                        <select
+                          value={generateForm.difficulty}
+                          onChange={(e) => setGenerateForm((f) => ({ ...f, difficulty: e.target.value }))}
+                          className="block w-full px-3 py-2 border border-slate-300 rounded-md text-sm bg-white"
+                        >
+                          <option value="easy">Easy</option>
+                          <option value="mixed">Mixed</option>
+                          <option value="hard">Hard</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Focus areas</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['technical', 'behavioral', 'case', 'resume'].map((f) => {
+                          const active = generateForm.focus.includes(f)
+                          return (
+                            <button
+                              key={f}
+                              type="button"
+                              onClick={() =>
+                                setGenerateForm((prev) => ({
+                                  ...prev,
+                                  focus: active ? prev.focus.filter((x) => x !== f) : [...prev.focus, f],
+                                }))
+                              }
+                              className={`px-3 py-1 rounded-full text-xs border ${
+                                active
+                                  ? 'bg-indigo-50 text-indigo-700 border-indigo-300'
+                                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                              }`}
+                            >
+                              {f[0].toUpperCase() + f.slice(1)}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        disabled={generatingPrep}
+                        onClick={handleGeneratePrep}
+                        className="w-full inline-flex justify-center items-center px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {generatingPrep ? 'Generating…' : 'Generate prep'}
+                      </button>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    disabled={generatingPrep}
-                    onClick={handleGeneratePrep}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
-                  >
-                    {generatingPrep ? 'Generating...' : 'Generate prep'}
-                  </button>
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-100/80 p-5 flex flex-col justify-center">
+                    <h4 className="text-sm font-semibold text-slate-900 mb-2">What you’ll get</h4>
+                    <ul className="text-xs text-slate-700 space-y-1">
+                      <li>• Role summary and key requirements for this job.</li>
+                      <li>• 8 tailored technical, behavioral, and resume-based questions.</li>
+                      <li>• Highlighted skill gaps vs. the job description.</li>
+                      <li>• A rubric the AI uses to score your answers.</li>
+                    </ul>
+                  </div>
                 </div>
               ) : !interviewPrepData.generated_json ? (
                 <div className="space-y-4">
