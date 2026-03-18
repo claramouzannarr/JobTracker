@@ -110,7 +110,12 @@ def ingest_adzuna_jobs(
             title = (job.get("title") or "").strip() or "Untitled"
             company_obj = job.get("company") or {}
             company = (company_obj.get("display_name") or "").strip() or "Unknown"
-            description = (job.get("description") or "").strip()
+            # Adzuna's 'description' field can be a shortened preview. Prefer
+            # 'full_description' when available so we store the complete JD,
+            # including all skills/requirements text.
+            description = (
+                (job.get("full_description") or job.get("description") or "").strip()
+            )
             loc_obj = job.get("location") or {}
             location_display = (loc_obj.get("display_name") or "").strip()
             url = (job.get("redirect_url") or job.get("adref") or "").strip()

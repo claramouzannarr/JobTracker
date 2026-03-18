@@ -103,6 +103,9 @@ class InterviewPrep(Base):
     resources_links = Column(JSON)  # Legacy
     topics_to_review = Column(JSON)  # Legacy
     generated_json = Column(JSON)  # Full prep package: role_context, questions[], skill_gaps, study_plan, answer_rubric
+    resume_hash = Column(String, index=True)
+    jd_hash = Column(String, index=True)
+    generated_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

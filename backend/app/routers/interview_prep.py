@@ -16,6 +16,7 @@ from app.services.interview_prep_service import (
     get_prep_by_id_and_user,
     transcribe_audio,
     get_application_and_user_context,
+    RateLimitError,
 )
 from app.services.skill_extraction import extract_skills_from_job_description
 from typing import List
@@ -114,6 +115,8 @@ async def generate_interview_prep(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except RateLimitError as e:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
@@ -145,6 +148,8 @@ async def evaluate_interview_answer(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except RateLimitError as e:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
