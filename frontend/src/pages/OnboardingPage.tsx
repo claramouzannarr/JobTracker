@@ -41,8 +41,7 @@ export default function OnboardingPage() {
   const [remotePreference, setRemotePreference] = useState('')
   const [workAuthorization, setWorkAuthorization] = useState('')
   const [jobTypePreference] = useState('Full-time')
-  const [primaryRolePreference, setPrimaryRolePreference] = useState('')
-  const [roleInterests, setRoleInterests] = useState<string[]>([])
+  const [primaryRolePreference] = useState('')
   const [onboardingStep, setOnboardingStep] = useState<1 | 2>(1)
 
   const getPasswordStrength = () => {
@@ -112,12 +111,11 @@ export default function OnboardingPage() {
     setLoading(true)
 
     try {
-      // Validate required fields for step 1 (background & role interests)
+      // Validate required fields for step 1 (background)
       if (onboardingStep === 1) {
         const stepErrors: Record<string, string> = {}
         if (!highestDegree) stepErrors.highestDegree = 'Highest education level is required.'
         if (!majors.length) stepErrors.majors = 'Please add at least one field of study.'
-        if (!roleInterests.length) stepErrors.roleInterests = 'Please select at least one role interest.'
 
         if (Object.keys(stepErrors).length > 0) {
           setErrors(stepErrors)
@@ -147,12 +145,13 @@ export default function OnboardingPage() {
         graduation_year: graduationYear ? parseInt(graduationYear) : undefined,
         country: currentCountry || undefined,
         primary_industry_preference: preferredIndustries[0] || undefined,
+        industry_preferences: preferredIndustries.length > 0 ? preferredIndustries : undefined,
         desired_countries: preferredCountries.length > 0 ? preferredCountries : undefined,
         remote_preference: remotePreference || undefined,
         work_authorization: workAuthorization || undefined,
         years_experience: yearsExperience ? parseInt(yearsExperience) : undefined,
         job_type_preference: jobTypePreference || undefined,
-        primary_role_preference: primaryRolePreference || (roleInterests[0] || undefined),
+        primary_role_preference: primaryRolePreference || undefined,
       }
       
       console.log('Registering user with profile data...')
@@ -403,44 +402,6 @@ export default function OnboardingPage() {
                   {majors.length > 0 && (
                     <p className="mt-2 text-xs text-gray-500">Selected: {majors.join(', ')}</p>
                   )}
-                </div>
-
-                {/* Role interests (chips) */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-2">
-                    Role interests <span className="text-red-500 text-xs">(Required)</span>
-                  </label>
-                  <p className="text-xs text-gray-500 mb-2">
-                    Choose a few to keep matches focused.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {['Software Engineer','Data Analyst','Product Manager','Business Analyst','Quant / Risk','UX/UI','Other roles'].map((role) => {
-                      const selected = roleInterests.includes(role)
-                      const disabled = !selected && roleInterests.length >= 5
-                      return (
-                        <button
-                          key={role}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => {
-                            setRoleInterests((prev) =>
-                              prev.includes(role)
-                                ? prev.filter((r) => r !== role)
-                                : [...prev, role]
-                            )
-                            setPrimaryRolePreference((prev) => prev || role)
-                          }}
-                          className={`px-3 py-1 rounded-full text-xs font-medium border transition ${
-                            selected
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                          } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
-                        >
-                          {role}
-                        </button>
-                      )
-                    })}
-                  </div>
                 </div>
               </>
             )}

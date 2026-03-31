@@ -315,8 +315,13 @@ def build_user_profile_text(
     parts = []
     if user.primary_role_preference:
         parts.append(f"Desired role: {user.primary_role_preference}")
-    if user.primary_industry_preference:
-        parts.append(f"Industry: {user.primary_industry_preference}")
+    industries = []
+    if getattr(user, "industry_preferences", None):
+        industries = user.industry_preferences if isinstance(user.industry_preferences, list) else []
+    if not industries and user.primary_industry_preference:
+        industries = [user.primary_industry_preference]
+    if industries:
+        parts.append("Industries: " + ", ".join(str(i) for i in industries[:10]))
     if user.remote_preference and user.remote_preference != "any":
         parts.append(f"Work preference: {user.remote_preference}")
     if user.country:
@@ -355,10 +360,16 @@ def recommend_jobs(
         logger.warning("Could not compute user profile embedding")
         return []
 
-    industry_keywords = _industry_keywords(user.primary_industry_preference or "")
+    industry_prefs: List[str] = []
+    if getattr(user, "industry_preferences", None):
+        industry_prefs = user.industry_preferences if isinstance(user.industry_preferences, list) else []
+    if not industry_prefs and user.primary_industry_preference:
+        industry_prefs = [user.primary_industry_preference]
+
+    industry_pref_text = ", ".join(industry_prefs)
+    industry_keywords = _industry_keywords(industry_pref_text or "")
     role_keywords = _role_keywords(user.primary_role_preference or "")
 
-    industry_pref_text = user.primary_industry_preference or ""
     industry_pref_emb = embed_text(industry_pref_text) if industry_pref_text else None
 
     # Candidate selection: is_active (or NULL for legacy rows), with embedding, apply hard filters, cap at MAX_CANDIDATES
@@ -436,7 +447,8 @@ def recommend_jobs(
 
         # Guardrail: if the user prefers finance but NOT software roles, downrank obvious software titles
         # even if the company/description mentions finance (many finance firms hire software engineers).
-        if _prefers_finance(user.primary_industry_preference) and not _prefers_software(user.primary_role_preference):
+        primary_industry = (industry_prefs[0] if industry_prefs else (user.primary_industry_preference or ""))
+        if _prefers_finance(primary_industry) and not _prefers_software(user.primary_role_preference):
             if _looks_like_software_role(job.title):
                 industry_score *= 0.25
                 penalties_applied.append("Downranked: software role under finance preference")

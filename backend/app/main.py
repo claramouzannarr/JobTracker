@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.database import engine, Base, migrate_resume_versions_table, migrate_job_postings_table, migrate_interview_prep_tables
+from app.database import engine, Base, migrate_resume_versions_table, migrate_job_postings_table, migrate_interview_prep_tables, migrate_users_table
 from app.routers import auth, applications, resumes, jobs, interview_prep, admin
 
 # Create tables
@@ -12,6 +12,7 @@ Base.metadata.create_all(bind=engine)
 migrate_resume_versions_table()
 migrate_job_postings_table()
 migrate_interview_prep_tables()
+migrate_users_table()
 
 app = FastAPI(title="Job Tracker API", version="1.0.0")
 

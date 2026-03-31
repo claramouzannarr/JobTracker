@@ -36,6 +36,7 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
             major=user_data.major,
             years_experience=user_data.years_experience,
             primary_industry_preference=user_data.primary_industry_preference,
+            industry_preferences=user_data.industry_preferences,
             primary_role_preference=user_data.primary_role_preference,
             desired_countries=user_data.desired_countries,
             languages_spoken=user_data.languages_spoken,

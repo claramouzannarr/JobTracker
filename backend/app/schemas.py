@@ -14,6 +14,7 @@ class UserBase(BaseModel):
     major: Optional[List[str]] = None  # List of majors/fields of study
     years_experience: Optional[int] = None
     primary_industry_preference: Optional[str] = None
+    industry_preferences: Optional[List[str]] = None
     primary_role_preference: Optional[str] = None
     desired_countries: Optional[List[str]] = None
     languages_spoken: Optional[List[str]] = None
@@ -44,6 +45,7 @@ class UserUpdate(BaseModel):
     major: Optional[List[str]] = None
     years_experience: Optional[int] = None
     primary_industry_preference: Optional[str] = None
+    industry_preferences: Optional[List[str]] = None
     primary_role_preference: Optional[str] = None
     desired_countries: Optional[List[str]] = None
     languages_spoken: Optional[List[str]] = None

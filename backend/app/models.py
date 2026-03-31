@@ -18,6 +18,7 @@ class User(Base):
     major = Column(JSON)  # List of majors/fields of study
     years_experience = Column(Integer)
     primary_industry_preference = Column(String)
+    industry_preferences = Column(JSON)  # List of industries
     primary_role_preference = Column(String)
     desired_countries = Column(JSON)  # List of countries
     languages_spoken = Column(JSON)  # List of languages

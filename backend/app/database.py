@@ -137,3 +137,27 @@ def migrate_job_postings_table():
         except Exception as e:
             print(f"⚠️  Migration job_postings: {e}")
 
+
+def migrate_users_table():
+    """Add missing columns to users table if they don't exist. PostgreSQL only."""
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        try:
+            def add_col_if_not_exists(col_name: str, col_def: str):
+                conn.execute(text(f"""
+                    DO $$ BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'users' AND column_name = '{col_name}'
+                        ) THEN
+                            ALTER TABLE users ADD COLUMN {col_name} {col_def};
+                        END IF;
+                    END $$;
+                """))
+
+            add_col_if_not_exists("industry_preferences", "JSON")
+            print("✅ Database migration: users.industry_preferences checked")
+        except Exception as e:
+            print(f"⚠️  Migration users: {e}")
+
