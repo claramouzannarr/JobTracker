@@ -6,6 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 from typing import List, Set, Dict, Optional
 import os
+import re
 
 # Load spaCy model (prefer small, faster model)
 try:
@@ -40,6 +41,7 @@ DEFAULT_SKILLS = [
     "Matplotlib", "Seaborn", "Plotly", "Jupyter", "Apache Spark", "Hadoop", "Hive",
     "Machine Learning", "Deep Learning", "Data Science", "NLP", "Computer Vision",
     "Natural Language Processing", "Reinforcement Learning", "Neural Networks",
+    "AI",
     # Cloud & DevOps
     "AWS", "Azure", "GCP", "Google Cloud", "Docker", "Kubernetes", "K8s", "Terraform",
     "Ansible", "Jenkins", "GitLab CI", "GitHub Actions", "CircleCI", "Travis CI",
@@ -162,7 +164,9 @@ def find_semantic_skills(text: str, skill_vocab: List[str], threshold: float = 0
     common_words = {
         'the', 'and', 'or', 'but', 'with', 'for', 'from', 'this', 'that', 'these', 'those',
         'was', 'were', 'been', 'have', 'has', 'had', 'will', 'would', 'should', 'could',
-        'can', 'may', 'might', 'must', 'shall', 'team', 'project', 'work', 'company'
+        'can', 'may', 'might', 'must', 'shall', 'team', 'project', 'work', 'company',
+        # Frequently mis-extracted "skills" from narrative text
+        'we', 'our', 'overview', 'note', 'regarding', 'current', 'security', 'situation',
     }
     
     # Filter by character patterns: avoid common verbs and stopwords
@@ -215,22 +219,47 @@ def extract_skills(text: str, skill_vocab: Optional[List[str]] = None) -> Set[st
     """Main function to extract skills from text."""
     if skill_vocab is None:
         skill_vocab = load_skill_vocabulary()
+
+    text_lower = text.lower()
+
+    # Always-on lightweight exact matcher (robust fallback)
+    # Motivation: if spaCy model isn't available, semantic candidate extraction can miss
+    # common skills when the resume uses lowercase or abbreviations (e.g., "k8s").
+    #
+    # We keep this conservative (word-boundary for plain words; substring for skills with symbols)
+    # to avoid pulling in stopwords as "skills".
+    alias_hits: Set[str] = set()
+    if "k8s" in text_lower:
+        alias_hits.add("Kubernetes")
+    if "nodejs" in text_lower or "node.js" in text_lower:
+        alias_hits.add("Node.js")
+
+    substring_hits: Set[str] = set()
+    for skill in skill_vocab:
+        s = skill.lower()
+        if len(s) < 3:
+            continue
+        # If the skill includes non-word characters (., +, #, /, -), plain substring is usually safest.
+        if re.search(r"[^\w\s]", skill):
+            if s in text_lower:
+                substring_hits.add(skill)
+            continue
+
+        # Word-boundary match for plain words (avoid matching inside longer words)
+        if re.search(rf"(?<!\w){re.escape(s)}(?!\w)", text_lower):
+            substring_hits.add(skill)
     
     # If both spaCy and the embedder are unavailable, fall back to a simple
     # substring-based matcher so we still detect skills for JD compatibility.
     if nlp is None and skill_embedder is None:
-        text_lower = text.lower()
-        fallback_skills = {
-            skill for skill in skill_vocab
-            if skill.lower() in text_lower
-        }
-        return fallback_skills
+        # Use the conservative matcher above.
+        return substring_hits.union(alias_hits)
     
     # Combine exact matching and semantic matching when advanced models exist
     exact_skills = extract_skills_with_matcher(text, skill_vocab)
     semantic_skills = find_semantic_skills(text, skill_vocab)
     
-    return exact_skills.union(semantic_skills)
+    return exact_skills.union(semantic_skills).union(substring_hits).union(alias_hits)
 
 
 def extract_skills_from_bullets(bullets: List[str], skill_vocab: Optional[List[str]] = None) -> Dict[str, Set[str]]:

@@ -188,8 +188,20 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         # Common bullet characters (including many PDF/Word variants)
         bullet_chars = [
             '•', '-', '*', '◦', '▪', '▸', '▹', '▫', '→', '·',
-            '●', '○', '■', '♦', '‣', '▶', '►', '➤', '➔', '▻', '–', '—'
+            '●', '○', '■', '♦', '‣', '▶', '►', '➤', '➔', '▻', '–', '—',
+            '',  # common PDF/Word bullet (U+F0B7)
         ]
+
+        # Heuristic: some PDF extractors drop bullet glyphs and indentation.
+        # If we are already inside an experience item (company/dates seen),
+        # treat long "action sentence" lines as bullets.
+        common_bullet_openers = {
+            "led", "built", "designed", "implemented", "developed", "created",
+            "improved", "increased", "reduced", "optimized", "automated",
+            "deployed", "integrated", "managed", "owned", "delivered",
+            "architected", "engineered", "launched", "streamlined",
+            "collaborated", "mentored", "analyzed",
+        }
         
         def is_bullet_line(line: str) -> bool:
             """Check if a line is a bullet point."""
@@ -242,6 +254,21 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
                 if bullet_text:
                     current_item["bullets"].append(bullet_text)
             
+            # Bullet fallback: treat action-style lines as bullets when we have context
+            # (company or dates already seen for this item).
+            elif (current_item.get("company") or current_item.get("dates")) and not is_bullet_line(line):
+                # Avoid accidentally treating headers as bullets
+                if (
+                    len(stripped_line) >= 18
+                    and re.match(r"^[A-Za-z]", stripped_line)
+                    and '|' not in stripped_line
+                    and not re.match(r"^(experience|education|skills|projects|summary)\b", stripped_line.lower())
+                ):
+                    first_word = (stripped_line.split()[:1] or [""])[0].lower().strip(".,;:!?()[]{}")
+                    has_metric = bool(re.search(r"\d+|%|\$|€|£", stripped_line))
+                    if first_word in common_bullet_openers or has_metric:
+                        current_item["bullets"].append(stripped_line)
+
             # Check if this looks like a company/role line
             elif not current_item["company"] and not is_bullet_line(line):
                 # Look for company/role patterns
@@ -287,7 +314,8 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         # Reuse bullet detection function with extended bullet characters
         bullet_chars = [
             '•', '-', '*', '◦', '▪', '▸', '▹', '▫', '→', '·',
-            '●', '○', '■', '♦', '‣', '▶', '►', '➤', '➔', '▻', '–', '—'
+            '●', '○', '■', '♦', '‣', '▶', '►', '➤', '➔', '▻', '–', '—',
+            '',  # common PDF/Word bullet (U+F0B7)
         ]
         
         def is_bullet_line(line: str) -> bool:
@@ -346,16 +374,72 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
     # Parse Skills list
     skills_text = sections.get("Skills", {}).get("text", "")
     if skills_text:
-        # Extract skills (comma-separated, bullet points, or line-separated)
-        skills_list = []
+        # Extract skills (prefer delimiter-based parsing; avoid treating full sentences as skills).
+        # IMPORTANT: store the canonical skills detected via the skill extractor, not raw text tokens,
+        # so we don't surface stopwords/locations as "skills".
+        raw_candidates: list[str] = []
         for line in skills_text.split('\n'):
-            if ',' in line:
-                skills_list.extend([s.strip() for s in line.split(',')])
-            elif line.strip().startswith(('•', '-', '*')):
-                skills_list.append(line.strip().lstrip('•-* ').strip())
-            elif line.strip():
-                skills_list.append(line.strip())
-        sections["Skills"]["skills_list"] = [s for s in skills_list if s]
+            l = line.strip()
+            if not l:
+                continue
+
+            # Strip leading bullet glyphs (including Word/PDF variants)
+            l = re.sub(r"^[\s•\-\*]+", "", l).strip()
+            if not l:
+                continue
+
+            # Split on common delimiters inside a line
+            if any(d in l for d in [",", ";", "·", "•", "|"]):
+                parts = re.split(r"[,;|•·]+", l)
+                raw_candidates.extend([p.strip() for p in parts if p.strip()])
+            else:
+                # Only accept short single items as a skill; ignore paragraph-like lines
+                raw_candidates.append(l)
+
+        stopish = {
+            "a", "an", "and", "as", "at", "by", "for", "from", "in", "into", "is",
+            "it", "of", "on", "or", "our", "the", "to", "we", "while", "with", "within",
+        }
+
+        def is_probable_skill(s: str) -> bool:
+            s2 = s.strip()
+            if not s2:
+                return False
+            if len(s2) < 2 or len(s2) > 40:
+                return False
+            # Drop sentence-like lines
+            if s2.count(" ") >= 5:
+                return False
+            s2_lower = s2.lower()
+            if s2_lower in stopish:
+                return False
+            # Drop obvious narrative fragments
+            if any(phrase in s2_lower for phrase in ["overview note", "current security", "situation"]):
+                return False
+            return True
+
+        cleaned = []
+        seen = set()
+        for c in raw_candidates:
+            c2 = c.strip().strip(".")
+            if not is_probable_skill(c2):
+                continue
+            key = c2.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(c2)
+
+        # Canonicalize to known skills using the extractor
+        try:
+            from app.services.skill_extraction import extract_skills
+            canonical = sorted(list(extract_skills(" ".join(cleaned)))) if cleaned else []
+        except Exception:
+            canonical = []
+
+        # If canonical extraction yields nothing (e.g., spaCy model missing),
+        # fall back to the cleaned list to avoid wiping the Skills section entirely.
+        sections["Skills"]["skills_list"] = canonical if canonical else cleaned
         sections["Skills"]["skills_text"] = skills_text
     
     return sections
@@ -680,6 +764,15 @@ def extract_job_keywords(job_description: str) -> Dict[str, List[str]]:
     
     # Normalize JD text
     jd_lower = job_description.lower()
+
+    # Canonical skill casing (so JD skills match resume skills exactly)
+    vocab_lower_to_canonical = {}
+    try:
+        from app.services.skill_extraction import load_skill_vocabulary
+        vocab = load_skill_vocabulary()
+        vocab_lower_to_canonical = {v.lower(): v for v in vocab}
+    except Exception:
+        vocab_lower_to_canonical = {}
     
     # Extract technical skills/tools (common patterns)
     tech_patterns = [
@@ -691,18 +784,32 @@ def extract_job_keywords(job_description: str) -> Dict[str, List[str]]:
         r'\b(agile|scrum|kanban|ci/cd|devops|microservices)\b',
     ]
     
-    required_keywords = []
-    optional_keywords = []
+    required_keywords: list[str] = []
+    optional_keywords: list[str] = []
     
     # Extract using patterns
     for pattern in tech_patterns:
         matches = re.findall(pattern, jd_lower, re.IGNORECASE)
-        required_keywords.extend([normalize_skill(m) for m in matches])
+        for m in matches:
+            nm = normalize_skill(m).lower()
+            required_keywords.append(vocab_lower_to_canonical.get(nm, nm))
     
-    # Also extract noun phrases (simplified)
-    # Look for capitalized terms that might be tools/technologies
-    capitalized_terms = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', job_description)
-    optional_keywords.extend([normalize_skill(t.lower()) for t in capitalized_terms[:20]])
+    # OPTIONAL keywords fallback:
+    # Previously we added arbitrary capitalized phrases (e.g., "At Microsoft") which polluted
+    # job_skills and caused nonsense "missing skills" like "we", "at microsoft", etc.
+    #
+    # We now only include optional terms if they map to a known skill in our vocabulary.
+    try:
+        vocab_lower = set(vocab_lower_to_canonical.keys()) if vocab_lower_to_canonical else set()
+
+        capitalized_terms = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', job_description)
+        for t in capitalized_terms[:40]:
+            norm = normalize_skill(t.lower())
+            if norm.lower() in vocab_lower:
+                optional_keywords.append(vocab_lower_to_canonical.get(norm.lower(), norm))
+    except Exception:
+        # If vocabulary can't be loaded, skip optional extraction entirely to avoid false positives.
+        pass
     
     return {
         "required": list(set(required_keywords)),
@@ -1231,25 +1338,31 @@ def analyze_resume(
     job_compat_eval = evaluate_job_compatibility(raw_text, job_description, sections)
     content_depth_eval = evaluate_ats_score(raw_text, sections, job_description)
     
-    # Compute overall score with weights
+    # Compute overall score with weights (percentages)
+    # Requested:
+    # - 15% format evaluation
+    # - 10% grammar
+    # - 45% job compatibility
+    # - 30% content depth
     weights = {
-        "format": 0.30,
-        "content_depth": 0.30,
-        "job_compatibility": 0.30 if job_description else 0.0,
+        "format": 0.15,
         "grammar": 0.10,
+        "job_compatibility": 0.45,
+        "content_depth": 0.30,
     }
-    
-    # Redistribute weights if JD is missing (no job compatibility component)
-    if not job_description:
-        weights["content_depth"] = 0.40
-        weights["format"] = 0.40
+
+    # If JD missing, exclude job compatibility and renormalize remaining weights
+    if not job_description or not job_compat_eval:
         weights["job_compatibility"] = 0.0
-    
+
+    total_w = sum(weights.values()) or 1.0
+    norm = {k: (v / total_w) for k, v in weights.items()}
+
     overall_score = (
-        weights["format"] * format_eval["score"] +
-        weights["content_depth"] * content_depth_eval["score"] +
-        (weights["job_compatibility"] * job_compat_eval["score"] if job_compat_eval else 0) +
-        weights["grammar"] * grammar_eval["score"]
+        norm["format"] * format_eval["score"] +
+        norm["content_depth"] * content_depth_eval["score"] +
+        (norm["job_compatibility"] * job_compat_eval["score"] if job_compat_eval else 0) +
+        norm["grammar"] * grammar_eval["score"]
     )
     
     # Generate top 5 actionable suggestions
