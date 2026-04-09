@@ -1,6 +1,20 @@
 # Job Tracker
 
-A web application for tracking job applications with AI-powered resume analysis, job recommendations, and interview preparation.
+## What is Job Tracker?
+
+Job Tracker is a platform built to help graduates and early-career job seekers navigate the job hunt more effectively. The job market can be overwhelming: hundreds of applications, no feedback on why your resume isn't landing interviews, and no idea which roles are actually a good fit for you. Job Tracker brings everything into one place and uses AI to give you the kind of feedback that would normally only come from a career coach.
+
+You can upload your resume, track every application you've sent, get a detailed breakdown of how strong your resume is for a specific role, discover jobs that match your profile, and practice interview questions tailored to each position — all in one app.
+
+## How It Works
+
+The intelligence behind Job Tracker relies on a few key techniques:
+
+**Resume Analysis** — When you upload a resume, the app runs it through a multi-step pipeline. It checks the structure and formatting, evaluates the quality of your bullet points (are they impact-driven? do they have metrics?), flags clichés and weak language, and checks grammar. The most important part is **semantic matching**: using Natural Language Processing (NLP), it converts both your resume and a job description into numerical representations (called embeddings) that capture meaning — not just keywords. This lets the app measure how well your experience actually aligns with a role, even if the exact words don't match.
+
+**Job Recommendations** — The app connects to a live job listings database from Adzuna APIand ranks roles by how closely they match your resume using the same semantic similarity technique. Instead of keyword filtering, it understands context.
+
+**Interview Preparation** — Once you reach the interview stage of an application, the app generates role-specific interview questions and lets you practice answering them. Your answers are evaluated by an AI model that gives you structured feedback on how to improve.
 
 ## Features
 
@@ -195,6 +209,4 @@ JobTracker_c/
 └── README.md
 ```
 
-## License
 
-MIT
