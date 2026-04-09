@@ -12,7 +12,7 @@ The intelligence behind Job Tracker relies on a few key techniques:
 
 **Resume Analysis** — When you upload a resume, the app runs it through a multi-step pipeline. It checks the structure and formatting, evaluates the quality of your bullet points (are they impact-driven? do they have metrics?), flags clichés and weak language, and checks grammar. The most important part is **semantic matching**: using Natural Language Processing (NLP), it converts both your resume and a job description into numerical representations (called embeddings) that capture meaning — not just keywords. This lets the app measure how well your experience actually aligns with a role, even if the exact words don't match.
 
-**Job Recommendations** — The app connects to a live job listings database from Adzuna APIand ranks roles by how closely they match your resume using the same semantic similarity technique. Instead of keyword filtering, it understands context.
+**Job Recommendations** — The app connects to a live job listings database (Adzuna) and ranks roles using five signals combined into a single score: how semantically similar the job is to your profile (25%), whether it matches your target country (25%), whether it aligns with your target industry (25%), whether the seniority level fits your experience (15%), and whether the remote/hybrid/onsite setup matches your preference (10%). Industry matching covers finance, private equity, technology, consulting, healthcare, and marketing — using both keyword detection and semantic understanding.
 
 **Interview Preparation** — Once you reach the interview stage of an application, the app generates role-specific interview questions and lets you practice answering them. Your answers are evaluated by an AI model that gives you structured feedback on how to improve.
 
@@ -26,7 +26,12 @@ The intelligence behind Job Tracker relies on a few key techniques:
   - Job compatibility scoring via semantic embeddings (45%)
   - Grammar & spelling checks (10%)
   - Skill gap analysis
-- **Job Recommendations**: Personalized job recommendations via Adzuna API, ranked by semantic similarity to your resume
+- **Job Recommendations**: Personalized job recommendations via Adzuna API, ranked by a weighted score across five signals:
+  - Semantic similarity to your profile (25%)
+  - Country preference match (25%)
+  - Industry alignment — finance, PE, tech, consulting, healthcare, marketing (25%)
+  - Seniority level fit — entry / mid / senior (15%)
+  - Remote/hybrid/onsite preference match (10%)
 - **Interview Preparation**: AI-generated interview questions and answer evaluation using OpenAI GPT
 
 ## Tech Stack

@@ -109,6 +109,71 @@ def _industry_keywords(preference: str) -> List[str]:
             ]
         )
 
+    if any(k in pref for k in ["technology", "software", "tech"]):
+        keywords.update(
+            [
+                "software",
+                "engineering",
+                "developer",
+                "cloud",
+                "agile",
+                "product",
+                "backend",
+                "frontend",
+                "data",
+                "api",
+                "infrastructure",
+                "saas",
+            ]
+        )
+
+    if any(k in pref for k in ["consulting", "management consulting", "strategy"]):
+        keywords.update(
+            [
+                "consulting",
+                "strategy",
+                "advisory",
+                "transformation",
+                "stakeholder",
+                "project management",
+                "management consulting",
+                "strategic",
+                "engagement",
+            ]
+        )
+
+    if any(k in pref for k in ["healthcare", "health", "pharma", "medical"]):
+        keywords.update(
+            [
+                "healthcare",
+                "health",
+                "pharma",
+                "pharmaceutical",
+                "clinical",
+                "medical",
+                "biotech",
+                "life sciences",
+                "patient",
+                "regulatory",
+            ]
+        )
+
+    if any(k in pref for k in ["marketing", "media", "advertising"]):
+        keywords.update(
+            [
+                "marketing",
+                "brand",
+                "digital marketing",
+                "campaign",
+                "advertising",
+                "media",
+                "content",
+                "seo",
+                "growth",
+                "analytics",
+            ]
+        )
+
     if not keywords:
         stop = {"and", "or", "the", "a", "an", "in", "of", "to", "for", "with"}
         tokens = [t for t in pref.replace("/", " ").replace(",", " ").split() if len(t) >= 2 and t not in stop]
@@ -460,15 +525,34 @@ def recommend_jobs(
         if _norm_text(getattr(user, "remote_preference", None)) not in {"", "any"}:
             penalties_applied.append("Matches remote preference" if remote_score >= 0.8 else "Remote preference mismatch")
 
-        # Final score weights (requested):
-        # - 0.3 embeddings similarity
-        # - 0.3 country preference
-        # - 0.3 industry preference
-        # - 0.1 remote/hybrid/onsite preference
-        #
-        # Cosine similarity is in [-1, 1]; map to [0, 1] for consistent blending.
+        # Seniority scoring
+        user_seniority = _estimate_user_seniority(getattr(user, "years_experience", None))
+        job_seniority = _estimate_job_seniority(job.title, job.description_text)
+        if user_seniority == job_seniority:
+            seniority_score = 1.0
+        elif abs(["entry", "mid", "senior"].index(user_seniority) - ["entry", "mid", "senior"].index(job_seniority)) == 1:
+            seniority_score = 0.5
+        else:
+            seniority_score = 0.0
+        penalties_applied.append(
+            f"Seniority match ({user_seniority} → {job_seniority})"
+            if seniority_score >= 0.8
+            else f"Seniority mismatch ({user_seniority} vs {job_seniority})"
+        )
+
+        # Final score weights:
+        # 0.25 semantic similarity + 0.25 country + 0.25 industry + 0.15 seniority + 0.10 remote
         sim_norm = max(0.0, min(1.0, (sim + 1.0) / 2.0))
-        final_score = 0.3 * sim_norm + 0.3 * country_score + 0.3 * industry_score + 0.1 * remote_score
+        final_score = (
+            0.25 * sim_norm
+            + 0.25 * country_score
+            + 0.25 * industry_score
+            + 0.15 * seniority_score
+            + 0.10 * remote_score
+        )
+
+        all_keywords = list(set(role_keywords + industry_keywords))
+        matched_skills = [kw for kw in all_keywords if kw in combined_text.lower()][:5]
 
         results.append({
             "job_id": job.id,
@@ -480,13 +564,9 @@ def recommend_jobs(
             "remote_type": job.remote_type,
             "salary_min": job.salary_min,
             "salary_max": job.salary_max,
-            # Return full job description so downstream features (skills, tailoring)
-            # can see all requirements and context.
             "description_text": job.description_text,
             "score": round(final_score, 4),
-            # For latency reasons, we skip per-job skill extraction here.
-            # Explanations focus on penalties (location, seniority, remote).
-            "matched_skills": [],
+            "matched_skills": matched_skills,
             "missing_skills": [],
             "penalties_applied": penalties_applied,
         })
