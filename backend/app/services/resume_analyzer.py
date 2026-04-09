@@ -80,6 +80,28 @@ SKILL_ALIASES = {
 }
 
 
+# Common bullet characters (including many PDF/Word variants)
+BULLET_CHARS = [
+    '•', '-', '*', '◦', '▪', '▸', '▹', '▫', '→', '·',
+    '●', '○', '■', '♦', '‣', '▶', '►', '➤', '➔', '▻', '–', '—',
+    '',  # common PDF/Word bullet (U+F0B7)
+]
+
+
+def is_bullet_line(line: str) -> bool:
+    """Check if a line is a bullet point."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if any(stripped.startswith(char) for char in BULLET_CHARS):
+        return True
+    if re.match(r'^\d+[\.\)]\s', stripped):
+        return True
+    if re.match(r'^[\s]{2,}', line) and len(stripped) > 10:
+        return True
+    return False
+
+
 def normalize_text(text: str) -> str:
     """Normalize text for comparison (lowercase, remove punctuation, collapse whitespace)."""
     text = text.lower()
@@ -184,46 +206,6 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         exp_items = []
         exp_lines = experience_text.split('\n')
         current_item = {"company": "", "role": "", "bullets": [], "dates": ""}
-        
-        # Common bullet characters (including many PDF/Word variants)
-        bullet_chars = [
-            '•', '-', '*', '◦', '▪', '▸', '▹', '▫', '→', '·',
-            '●', '○', '■', '♦', '‣', '▶', '►', '➤', '➔', '▻', '–', '—',
-            '',  # common PDF/Word bullet (U+F0B7)
-        ]
-
-        # Heuristic: some PDF extractors drop bullet glyphs and indentation.
-        # If we are already inside an experience item (company/dates seen),
-        # treat long "action sentence" lines as bullets.
-        common_bullet_openers = {
-            "led", "built", "designed", "implemented", "developed", "created",
-            "improved", "increased", "reduced", "optimized", "automated",
-            "deployed", "integrated", "managed", "owned", "delivered",
-            "architected", "engineered", "launched", "streamlined",
-            "collaborated", "mentored", "analyzed",
-        }
-        
-        def is_bullet_line(line: str) -> bool:
-            """Check if a line is a bullet point."""
-            stripped = line.strip()
-            if not stripped:
-                return False
-            
-            # Check for common bullet characters (with optional leading whitespace)
-            if any(stripped.startswith(char) for char in bullet_chars):
-                return True
-            
-            # Check for numbered bullets (1., 2., etc.)
-            if re.match(r'^\d+[\.\)]\s', stripped):
-                return True
-            
-            # Check for indented lines that might be bullets (2+ spaces or tab)
-            if re.match(r'^[\s]{2,}', line) and len(stripped) > 10:
-                # Likely a bullet if indented and has content
-                return True
-            
-            return False
-        
         for line in exp_lines:
             stripped_line = line.strip()
             if not stripped_line:
@@ -245,7 +227,7 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
             elif is_bullet_line(line):
                 # Clean bullet: remove bullet char and leading whitespace
                 bullet_text = stripped_line
-                for char in bullet_chars:
+                for char in BULLET_CHARS:
                     if bullet_text.startswith(char):
                         bullet_text = bullet_text[len(char):].strip()
                         break
@@ -311,26 +293,6 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
         proj_lines = projects_text.split('\n')
         current_item = {"title": "", "bullets": [], "dates": ""}
         
-        # Reuse bullet detection function with extended bullet characters
-        bullet_chars = [
-            '•', '-', '*', '◦', '▪', '▸', '▹', '▫', '→', '·',
-            '●', '○', '■', '♦', '‣', '▶', '►', '➤', '➔', '▻', '–', '—',
-            '',  # common PDF/Word bullet (U+F0B7)
-        ]
-        
-        def is_bullet_line(line: str) -> bool:
-            """Check if a line is a bullet point."""
-            stripped = line.strip()
-            if not stripped:
-                return False
-            if any(stripped.startswith(char) for char in bullet_chars):
-                return True
-            if re.match(r'^\d+[\.\)]\s', stripped):
-                return True
-            if re.match(r'^[\s]{2,}', line) and len(stripped) > 10:
-                return True
-            return False
-        
         for line in proj_lines:
             stripped_line = line.strip()
             if not stripped_line:
@@ -351,7 +313,7 @@ def extract_resume_sections(raw_text: str) -> Dict[str, Any]:
             # Check for bullet point
             elif is_bullet_line(line):
                 bullet_text = stripped_line
-                for char in bullet_chars:
+                for char in BULLET_CHARS:
                     if bullet_text.startswith(char):
                         bullet_text = bullet_text[len(char):].strip()
                         break

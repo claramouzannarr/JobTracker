@@ -526,7 +526,7 @@ def recommend_jobs(
             penalties_applied.append("Matches remote preference" if remote_score >= 0.8 else "Remote preference mismatch")
 
         # Seniority scoring
-        user_seniority = _estimate_user_seniority(getattr(user, "years_experience", None))
+        user_seniority = _estimate_user_seniority(user.years_experience)
         job_seniority = _estimate_job_seniority(job.title, job.description_text)
         if user_seniority == job_seniority:
             seniority_score = 1.0
